@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "iabdullaheqbal", email = "abdullaheqbalhere@gmail.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "gradio>=6.31.0",
     "rank-bm25>=0.2.2",
