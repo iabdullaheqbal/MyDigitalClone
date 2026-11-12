@@ -56,6 +56,8 @@ uv run --env-file .env python app.py
 
 The sentence-transformer encoder and optional cross-encoder run on CPU. Their
 model weights may need to download the first time they are used.
+The Space build image supplies PyTorch, so `requirements.txt` leaves Torch
+unpinned to avoid conflicting with the version provided by Gradio Spaces.
 
 ## Hugging Face Spaces
 
