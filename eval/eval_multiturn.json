@@ -1,0 +1,24 @@
+{
+  "name": "MyDigitalClone multi-turn evaluation",
+  "version": 1,
+  "review_status": "draft",
+  "cases": [
+    {
+      "id": "draft-followup-channels-001",
+      "history": [
+        {
+          "role": "user",
+          "content": "Tell me about my internship project."
+        },
+        {
+          "role": "assistant",
+          "content": "You described a multi-channel AI agent."
+        }
+      ],
+      "question": "Which channels did it support?",
+      "expected_standalone_query": "Which channels did the multi-channel AI agent support?",
+      "relevant_sources": ["notes_backend_engineering.md"],
+      "human_review_required": true
+    }
+  ]
+}

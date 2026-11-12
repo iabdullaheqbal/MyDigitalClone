@@ -1,0 +1,91 @@
+{
+  "name": "MyDigitalClone retrieval evaluation",
+  "version": 1,
+  "review_status": "draft",
+  "cases": [
+    {
+      "id": "draft-bio-001",
+      "category": "biography",
+      "question": "What background information is included in the biography notes?",
+      "relevant_sources": ["bio.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-skills-001",
+      "category": "skills",
+      "question": "Which professional and technical skills are described in the CV notes?",
+      "relevant_sources": ["cv_skills.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-faq-001",
+      "category": "faq",
+      "question": "What questions about my background and work are covered in the FAQ?",
+      "relevant_sources": ["faq.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-workstyle-001",
+      "category": "work style",
+      "question": "How do I describe the way I work?",
+      "relevant_sources": ["how_i_work.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-opinions-001",
+      "category": "opinions",
+      "question": "What views are expressed in my opinions note?",
+      "relevant_sources": ["opinions.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-projects-001",
+      "category": "projects",
+      "question": "What projects are described in my project notes?",
+      "relevant_sources": ["other_projects.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-resona-001",
+      "category": "projects",
+      "question": "What does my Resona project note describe?",
+      "relevant_sources": ["resona.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-codean-001",
+      "category": "projects",
+      "question": "What does my Codean project note describe?",
+      "relevant_sources": ["codean.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-backend-001",
+      "category": "backend engineering",
+      "question": "What backend engineering work or topics are covered in my notes?",
+      "relevant_sources": ["notes_backend_engineering.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-pipelines-001",
+      "category": "machine learning",
+      "question": "What does my machine-learning pipeline note cover?",
+      "relevant_sources": ["notes_ml_pipelines.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-rag-001",
+      "category": "retrieval",
+      "question": "What retrieval and RAG topics are described in my notes?",
+      "relevant_sources": ["notes_retrieval_and_rag.md"],
+      "human_review_required": true
+    },
+    {
+      "id": "draft-security-001",
+      "category": "security and machine learning",
+      "question": "What security and machine-learning topics are covered in my notes?",
+      "relevant_sources": ["notes_security_ml.md"],
+      "human_review_required": true
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+"""MyDigitalClone application package."""

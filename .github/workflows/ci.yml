@@ -1,0 +1,86 @@
+name: CI and Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run --locked ruff check app.py clone scripts tests
+
+      - name: Test
+        run: uv run --locked pytest -q
+
+      - name: Build wheel
+        run: uv build --wheel
+
+  deploy:
+    needs: validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_WRITE_TOKEN: ${{ secrets.HF_WRITE_TOKEN }}
+          HF_USER: ${{ vars.HF_USER }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$HF_WRITE_TOKEN" ]; then
+            echo "::error::HF_WRITE_TOKEN is not configured as a GitHub Actions secret."
+            exit 1
+          fi
+          if [ -z "$HF_USER" ] || [ -z "$HF_SPACE" ]; then
+            echo "::error::HF_USER and HF_SPACE must be configured as GitHub Actions variables."
+            exit 1
+          fi
+
+          cat > "$RUNNER_TEMP/hf-askpass.sh" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "hf_user" ;;
+            *Password*) printf '%s\n' "$HF_WRITE_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          ASKPASS
+          chmod 700 "$RUNNER_TEMP/hf-askpass.sh"
+
+          GIT_ASKPASS="$RUNNER_TEMP/hf-askpass.sh" \
+            GIT_TERMINAL_PROMPT=0 \
+            git push --force \
+              "https://huggingface.co/spaces/${HF_USER}/${HF_SPACE}" \
+              HEAD:main

@@ -1,23 +1,54 @@
 [project]
 name = "mydigitalclone"
 version = "0.1.0"
-description = "Add your description here"
+description = "Session-aware hybrid RAG chatbot built with Gradio and Groq"
 readme = "README.md"
 authors = [
     { name = "iabdullaheqbal", email = "abdullaheqbalhere@gmail.com" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.11,<3.12"
 dependencies = [
     "gradio>=6.31.0",
     "huggingface-hub>=2.4.0",
-    "numpy>=2.5.4",
+    "numpy>=2.0.0,<2.5.4",
     "rank-bm25>=0.2.2",
+    "requests>=2.32.0",
     "sentence-transformers>=6.2.0",
+    "torch>=2.15.0",
 ]
 
-[project.scripts]
-mydigitalclone = "mydigitalclone:main"
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.11.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "clone"
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: tests that download models or use external services",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
