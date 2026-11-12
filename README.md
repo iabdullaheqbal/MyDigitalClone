@@ -3,10 +3,8 @@ title: My Digital Clone
 emoji: 🤖
 colorFrom: blue
 colorTo: indigo
-sdk: gradio
-sdk_version: "6.31.0"
-python_version: "3.11"
-app_file: app.py
+sdk: docker
+app_port: 7860
 pinned: false
 ---
 
@@ -56,11 +54,11 @@ uv run --env-file .env python app.py
 
 The sentence-transformer encoder and optional cross-encoder run on CPU. Their
 model weights may need to download the first time they are used.
-The Space build image supplies PyTorch, so `requirements.txt` leaves Torch
-unpinned to avoid conflicting with the version provided by Gradio Spaces.
 
 ## Hugging Face Spaces
 
+The Space builds the Gradio app from the root `Dockerfile` using Python 3.11.
+`requirements.txt` installs the app dependencies, including CPU-only PyTorch.
 Add `GROQ_API_KEY` as a Space secret (not as a repository file). `GROQ_MODEL`
 is optional; the default is `openai/gpt-oss-20b`. The app can still start
 without a key and will return a grounded passage fallback instead of calling
