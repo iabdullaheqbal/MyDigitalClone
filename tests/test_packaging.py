@@ -16,6 +16,7 @@ SPACE_PROVIDED = {
     "uvicorn",
     "websockets",
 }
+SPACE_FORBIDDEN_PINS = SPACE_PROVIDED - {"torch"}
 
 
 def _normalize_name(name: str) -> str:
@@ -36,8 +37,14 @@ def test_space_requirements_pin_only_project_direct_dependencies() -> None:
         if _normalize_name(package["name"]) in expected_names
     }
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    lines = requirements.splitlines()
+    assert lines[:2] == [
+        "--extra-index-url https://download.pytorch.org/whl/cpu",
+        "torch",
+    ]
+    assert lines.count("torch") == 1
     actual_versions = {}
-    for line in requirements.splitlines():
+    for line in lines[2:]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         match = re.fullmatch(r"\s*([A-Za-z0-9._-]+)==([^\s;]+)\s*", line)
@@ -47,7 +54,7 @@ def test_space_requirements_pin_only_project_direct_dependencies() -> None:
     assert actual_versions == {
         name: locked_versions[name] for name in expected_names
     }
-    assert not (actual_versions.keys() & SPACE_PROVIDED)
+    assert not (actual_versions.keys() & SPACE_FORBIDDEN_PINS)
 
 
 def test_space_uses_gradio_sdk_with_python_312() -> None:

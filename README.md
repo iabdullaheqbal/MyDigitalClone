@@ -59,9 +59,10 @@ model weights may need to download the first time they are used.
 
 ## Hugging Face Spaces
 
-The Space uses the Gradio SDK with Python 3.12.12. Its build image supplies
-Gradio, PyTorch, and their dependencies. `requirements.txt` lists only the
-remaining direct runtime dependencies, pinned to their versions in `uv.lock`.
+The Space uses the Gradio SDK with Python 3.12.12 on CPU basic hardware.
+`requirements.txt` installs CPU PyTorch from the PyTorch CPU wheel index and
+lists the remaining direct runtime dependencies pinned to their `uv.lock`
+versions. The Space supplies Gradio and its dependencies.
 After changing `pyproject.toml`, run `uv lock`, copy the resolved versions for
 the app's non-Space-provided direct dependencies from `uv.lock` into
 `requirements.txt`, and verify with the Space install command. Do not replace

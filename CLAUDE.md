@@ -1,10 +1,11 @@
 # Project guidance
 
 - Keep the project on Python 3.11 and manage dependencies with `uv`.
-- Keep `requirements.txt` limited to direct runtime dependencies not supplied
-  by Hugging Face Spaces, pinned to versions in `uv.lock`; do not full-export
-  transitive packages into it. After changing dependencies, run `uv lock`,
-  update only those direct pins from `uv.lock`, and verify the Space install.
+- Keep the Space on CPU basic hardware. In `requirements.txt`, keep `torch`
+  unpinned with the PyTorch CPU extra index; Spaces supplies Gradio and its
+  dependencies. Pin only remaining direct runtime dependencies to versions in
+  `uv.lock`; do not full-export transitive packages. After dependency changes,
+  run `uv lock`, update those direct pins, and verify the Space install.
 - Keep orchestration in `clone/service.py`; UI handlers should delegate to the
   service rather than implement retrieval or generation logic.
 - Do not edit owner-provided notes in `data/` or generate personal facts unless
