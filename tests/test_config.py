@@ -16,6 +16,7 @@ def test_from_env_uses_safe_defaults_without_api_key(monkeypatch: pytest.MonkeyP
     assert settings.data_dir == Path(__file__).resolve().parents[1] / "data"
     assert settings.strong_cosine == 0.45
     assert settings.weak_cosine == 0.20
+    assert settings.show_supervisor_name is False
 
 
 def test_from_env_rejects_invalid_chunk_size(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,3 +38,9 @@ def test_from_env_rejects_reversed_evidence_thresholds(monkeypatch: pytest.Monke
 
     with pytest.raises(ValueError, match="STRONG_COSINE"):
         Settings.from_env()
+
+
+def test_from_env_parses_supervisor_name_privacy_switch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHOW_SUPERVISOR_NAME", "true")
+
+    assert Settings.from_env().show_supervisor_name is True

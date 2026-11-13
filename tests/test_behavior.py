@@ -45,6 +45,8 @@ def test_behavior_set_has_required_draft_counts() -> None:
     assert counts == {
         "greeting": 5,
         "thanks_bye": 3,
+        "acknowledgement": 10,
+        "aggregate_claim": 8,
         "identity": 3,
         "about_me_answerable": 6,
         "about_me_not_in_notes": 5,

@@ -218,13 +218,13 @@
     }
   ],
   "topics": [
-    "background and education",
-    "skills and work style",
-    "backend engineering and infrastructure",
-    "machine-learning pipelines and evaluation",
-    "retrieval, RAG, and reranking",
-    "cybersecurity and digital forensics",
-    "AI products and project work",
-    "local LLMs and automation"
+    "my background and skills",
+    "CODEAN, my final year project",
+    "common questions",
+    "my setup and how I work",
+    "how I think about retrieval, security and backend engineering",
+    "my opinions",
+    "my other projects",
+    "Resona"
   ]
 }

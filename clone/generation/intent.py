@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
+from unicodedata import category as unicode_category
 
 
 class Intent(StrEnum):
@@ -13,6 +14,7 @@ class Intent(StrEnum):
     THANKS = "thanks"
     GOODBYE = "goodbye"
     IDENTITY = "identity"
+    ACKNOWLEDGEMENT = "acknowledgement"
     SENSITIVE_REQUEST = "sensitive_request"
     INJECTION = "injection"
     ABUSE = "abuse"
@@ -60,12 +62,30 @@ _GREETINGS = re.compile(
     re.IGNORECASE,
 )
 _THANKS = re.compile(r"\b(?:thanks|thank\s+you|thx|much\s+appreciated)\b", re.IGNORECASE)
+_ACKNOWLEDGEMENT = re.compile(
+    r"^(?:(?:ahn+|ah+|oh|hm+|uhm+|umm+)\s+)?"
+    r"(?:(?:that'?s|that\s+is)\s+)?"
+    r"(?:great|nice|wow|cool|awesome|ok(?:ay)?|got\s+it|hm+|lol|haha+|"
+    r"excellent|perfect|sweet|interesting|right)[.!?\s]*$",
+    re.IGNORECASE,
+)
 _GOODBYE = re.compile(
     r"\b(?:bye|goodbye|see\s+you|take\s+care|later|farewell)\b",
     re.IGNORECASE,
 )
 _WORD = re.compile(r"[A-Za-z]+")
 _VALID_LOW_VOWEL_WORDS = {"rhythm", "rhythms", "strengths"}
+
+
+def _is_acknowledgement(message: str) -> bool:
+    normalized = re.sub(r"([a-z])\1{2,}", r"\1", message.strip().casefold())
+    normalized = re.sub(r"[^\w\s']+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if _ACKNOWLEDGEMENT.fullmatch(normalized):
+        return True
+    if any(character.isalnum() for character in normalized):
+        return False
+    return any(unicode_category(character) in {"So", "Sk"} for character in message)
 
 
 def _is_gibberish(message: str) -> bool:
@@ -95,9 +115,11 @@ def route_intent(message: str) -> Intent:
     if _GREETINGS.fullmatch(normalized):
         return Intent.GREETING
     if _THANKS.search(normalized):
-        return Intent.THANKS
+        return Intent.ACKNOWLEDGEMENT
     if _GOODBYE.search(normalized):
         return Intent.GOODBYE
+    if _is_acknowledgement(normalized):
+        return Intent.ACKNOWLEDGEMENT
     if _is_gibberish(normalized):
         return Intent.GIBBERISH_OR_EMPTY
     return Intent.ABOUT_ME_OR_OTHER

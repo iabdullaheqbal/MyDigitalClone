@@ -1,4 +1,5 @@
 from clone.guardrails.output_checks import check_output, contains_pii
+from clone.guardrails.privacy import extract_third_party_names
 
 
 def test_output_checks_redact_contact_and_credential_patterns() -> None:
@@ -38,3 +39,32 @@ def test_output_checks_allow_grounded_first_person_answers_and_reject_bare_fallb
         "The notes describe a project.", notes="The notes describe a project."
     )
     assert "missing_first_person" in third_person.flags
+
+
+def test_output_checks_reject_ungrounded_number_words_and_quantifiers() -> None:
+    output = check_output(
+        "I have completed seven projects and worked on all of them.",
+        notes="I have completed projects.",
+    )
+
+    assert "ungrounded_number_word" in output.flags
+    assert "ungrounded_quantifier" in output.flags
+
+
+def test_output_checks_redact_third_party_names_but_preserve_product_names() -> None:
+    notes = "My supervisor is Dr. Casey Example. CODEAN is my final year project."
+    names = extract_third_party_names(notes)
+    output = check_output(
+        "I worked with Casey Example on CODEAN.",
+        notes=notes,
+        third_party_names=names,
+    )
+
+    assert names == ("Casey Example",)
+    assert "Casey Example" not in output.text
+    assert "[redacted]" in output.text
+    assert "CODEAN" in output.text
+    assert "third_party_name_redacted" in output.flags
+    assert extract_third_party_names(
+        "My teammates are Alice Example and Bob Sample; CODEAN is my project."
+    ) == ("Alice Example", "Bob Sample")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from time import perf_counter
 from typing import Protocol
 
@@ -15,12 +16,14 @@ from clone.generation.query_rewriter import rewrite
 from clone.generation.responses import render_response, response_category
 from clone.generation.topics import FALLBACK_TOPICS
 from clone.guardrails.input_checks import MAX_SESSION_MESSAGES, check_input
+from clone.guardrails.privacy import redact_names, redact_retrieval_hits
 from clone.types import AnswerResult, RetrievalHit, RetrievalMode
 
 logger = logging.getLogger(__name__)
 _BYPASS_INTENTS = {
     Intent.GREETING,
     Intent.THANKS,
+    Intent.ACKNOWLEDGEMENT,
     Intent.GOODBYE,
     Intent.IDENTITY,
     Intent.SENSITIVE_REQUEST,
@@ -56,6 +59,7 @@ class CloneService:
         candidates: int = 20,
         history_turns: int = 6,
         topics: tuple[str, ...] = FALLBACK_TOPICS,
+        show_supervisor_name: bool = False,
     ) -> None:
         if candidates < 1:
             raise ValueError("candidates must be at least 1")
@@ -69,6 +73,7 @@ class CloneService:
         self._candidates = candidates
         self._history_turns = history_turns
         self.topics = topics or FALLBACK_TOPICS
+        self._show_supervisor_name = show_supervisor_name
         self._strong_cosine = strong_cosine
         self._weak_cosine = weak_cosine
 
@@ -151,6 +156,12 @@ class CloneService:
             strong_cosine=self._strong_cosine,
             weak_cosine=self._weak_cosine,
         )
+        hits, third_party_names = redact_retrieval_hits(hits, show_names=self._show_supervisor_name)
+        if third_party_names:
+            context_history = [
+                replace(turn, content=redact_names(turn.content, third_party_names)[0])
+                for turn in context_history
+            ]
         rewrite_ms = 0.0
 
         if evidence_level != "none" and self._llm is not None and context_history:
@@ -174,7 +185,27 @@ class CloneService:
                 )
                 if rewritten_evidence != "none":
                     standalone_query = rewritten_query
+                    rewritten_hits, rewritten_names = redact_retrieval_hits(
+                        rewritten_hits, show_names=self._show_supervisor_name
+                    )
+                    third_party_names = tuple(dict.fromkeys((*third_party_names, *rewritten_names)))
+                    if third_party_names and not self._show_supervisor_name:
+                        rewritten_hits = [
+                            replace(
+                                hit,
+                                chunk=replace(
+                                    hit.chunk,
+                                    text=redact_names(hit.chunk.text, third_party_names)[0],
+                                ),
+                            )
+                            for hit in rewritten_hits
+                        ]
                     hits = rewritten_hits
+                    if third_party_names:
+                        context_history = [
+                            replace(turn, content=redact_names(turn.content, third_party_names)[0])
+                            for turn in context_history
+                        ]
                     evidence_level = rewritten_evidence
 
         if evidence_level == "none":
@@ -220,6 +251,7 @@ class CloneService:
             hits,
             context_history,
             evidence_level,
+            third_party_names,
         )
         generation_ms = (perf_counter() - generation_started) * 1000
         session.record_exchange(normalized_question, generated.answer)
@@ -259,7 +291,16 @@ class CloneService:
         *,
         retain: bool = False,
     ) -> AnswerResult:
-        answer = render_response(category, question, self.topics)
+        previous_answer = next(
+            (turn.content for turn in reversed(session.history()) if turn.role == "assistant"),
+            None,
+        )
+        answer = render_response(
+            category,
+            question,
+            self.topics,
+            previous_answer=previous_answer,
+        )
         if question:
             session.record_exchange(question, answer, retain_in_history=retain)
         all_flags = tuple(dict.fromkeys(flags))

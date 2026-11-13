@@ -45,5 +45,6 @@ def create_app() -> gr.Blocks:
         candidates=settings.candidates,
         history_turns=settings.history_turns,
         topics=load_topics(settings.artifacts_dir),
+        show_supervisor_name=settings.show_supervisor_name,
     )
     return build_ui(service, reranker_available=True)

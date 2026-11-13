@@ -4,7 +4,11 @@ import pytest
 
 from clone.generation.intent import Intent, is_about_me_question, route_intent
 from clone.generation.responses import render_response, response_variants
-from clone.generation.topics import FALLBACK_TOPICS, select_topics
+from clone.generation.topics import (
+    FALLBACK_TOPICS,
+    format_topic_list,
+    select_topics,
+)
 from clone.guardrails.input_checks import MAX_INPUT_LENGTH, check_input
 
 
@@ -12,7 +16,14 @@ from clone.guardrails.input_checks import MAX_INPUT_LENGTH, check_input
     ("message", "expected"),
     [
         ("Hi", Intent.GREETING),
-        ("Thank you!", Intent.THANKS),
+        ("Thank you!", Intent.ACKNOWLEDGEMENT),
+        ("great", Intent.ACKNOWLEDGEMENT),
+        ("greaaat!!!", Intent.ACKNOWLEDGEMENT),
+        ("ahnn that's great", Intent.ACKNOWLEDGEMENT),
+        ("hmm", Intent.ACKNOWLEDGEMENT),
+        ("👍🎉", Intent.ACKNOWLEDGEMENT),
+        ("got it", Intent.ACKNOWLEDGEMENT),
+        ("Thanks!", Intent.ACKNOWLEDGEMENT),
         ("Goodbye, take care.", Intent.GOODBYE),
         ("Are you real?", Intent.IDENTITY),
         ("Are you AI?", Intent.IDENTITY),
@@ -62,7 +73,15 @@ def test_templates_have_three_deterministic_variants_and_topic_suggestions() -> 
         "not_in_notes", "What is my favorite color?", FALLBACK_TOPICS
     )
     assert len(set(render_response("greeting", f"Hi {index}") for index in range(10))) > 1
-    assert len(select_topics("unknown", FALLBACK_TOPICS)) == 2
+    assert len(select_topics("unknown", FALLBACK_TOPICS)) == 3
+    assert len(select_topics("unknown", FALLBACK_TOPICS, count=10)) == 3
+    assert format_topic_list(("A", "B", "C")) == "A, B, or C"
+    assert "CODEAN, my final year project" in render_response(
+        "acknowledgement",
+        "Ahnnn.... thats great!",
+        FALLBACK_TOPICS,
+        previous_answer="CODEAN is my final year project.",
+    )
 
 
 def test_all_response_variants_use_first_person() -> None:

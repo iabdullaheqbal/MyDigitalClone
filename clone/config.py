@@ -23,6 +23,18 @@ def _read_float(name: str, default: float, minimum: float, maximum: float) -> fl
     return value
 
 
+def _read_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Runtime settings loaded from environment variables."""
@@ -38,6 +50,7 @@ class Settings:
     strong_cosine: float
     weak_cosine: float
     history_turns: int
+    show_supervisor_name: bool
     data_dir: Path
     artifacts_dir: Path
 
@@ -67,6 +80,7 @@ class Settings:
             strong_cosine=strong_cosine,
             weak_cosine=weak_cosine,
             history_turns=_read_int("HISTORY_TURNS", 6, 0),
+            show_supervisor_name=_read_bool("SHOW_SUPERVISOR_NAME", False),
             data_dir=Path(os.getenv("DATA_DIR", str(PROJECT_ROOT / "data"))).expanduser(),
             artifacts_dir=Path(
                 os.getenv("ARTIFACTS_DIR", str(PROJECT_ROOT / "artifacts"))

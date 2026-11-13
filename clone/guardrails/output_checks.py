@@ -6,6 +6,8 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from clone.guardrails.privacy import redact_names
+
 _PII_PATTERNS = (
     ("credential_redacted", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.I)),
     ("key_redacted", re.compile(r"\b(?:gsk|sk|ghp|hf|api)[_-][A-Za-z0-9_-]{16,}\b", re.I)),
@@ -18,6 +20,17 @@ _PII_PATTERNS = (
     ("key_like_string_redacted", re.compile(r"\b[A-Za-z0-9_-]{32,}\b")),
 )
 _NUMBER = re.compile(r"\b\d+(?:[.,]\d+)*\b")
+_NUMBER_WORD = re.compile(
+    r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"dozen|couple)\b",
+    re.IGNORECASE,
+)
+_QUANTIFIER = re.compile(
+    r"\b(?:all|every|only|never|always|over|total|best|most|ever|first|last)\b"
+    r"|\bmore\s+than\b",
+    re.I,
+)
 _CAPITALIZED = re.compile(r"\b[A-Z][a-zA-Z'-]{2,}\b")
 _FIRST_PERSON = re.compile(r"\b(?:I|I'm|I've|my|me)\b", re.IGNORECASE)
 _COMMON_CAPITALIZED = {
@@ -95,6 +108,7 @@ def check_output(
     notes: str,
     persona_facts: str = "AI clone",
     topics: Iterable[str] = (),
+    third_party_names: Iterable[str] = (),
 ) -> OutputCheck:
     """Redact PII and reject ungrounded or prompt-leaking model responses."""
     text = answer.strip()
@@ -105,6 +119,9 @@ def check_output(
         text, replacements = pattern.subn("[redacted]", text)
         if replacements:
             flags.append(flag)
+    text, names_redacted = redact_names(text, third_party_names)
+    if names_redacted:
+        flags.append("third_party_name_redacted")
 
     lowered = text.casefold()
     if "as an ai language model" in lowered or re.fullmatch(
@@ -118,12 +135,29 @@ def check_output(
 
     trusted_text = f"{notes}\n{persona_facts}\n{' '.join(topics)}"
     trusted = trusted_text.casefold()
+    trusted_notes = notes.casefold()
     trusted_numbers = set(_NUMBER.findall(trusted))
     unsupported_numbers = [
         number for number in _NUMBER.findall(text) if number not in trusted_numbers
     ]
     if unsupported_numbers:
         flags.append("ungrounded_number")
+
+    unsupported_number_words = [
+        match.group().casefold()
+        for match in _NUMBER_WORD.finditer(text)
+        if not re.search(rf"\b{re.escape(match.group().casefold())}\b", trusted_notes)
+    ]
+    if unsupported_number_words:
+        flags.append("ungrounded_number_word")
+
+    unsupported_quantifiers = [
+        match.group().casefold()
+        for match in _QUANTIFIER.finditer(text)
+        if not re.search(rf"\b{re.escape(match.group().casefold())}\b", trusted_notes)
+    ]
+    if unsupported_quantifiers:
+        flags.append("ungrounded_quantifier")
 
     unsupported_terms = []
     for match in _CAPITALIZED.finditer(text):

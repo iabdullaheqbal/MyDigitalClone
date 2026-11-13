@@ -1,5 +1,6 @@
 from clone.generation.answerer import MAX_COMPLETION_TOKENS, Answerer
 from clone.generation.llm_client import GroqRateLimitError, GroqRequestError
+from clone.generation.topics import FALLBACK_TOPICS
 from clone.types import Chunk, RetrievalHit, Turn
 
 
@@ -50,7 +51,8 @@ def test_answerer_passes_context_evidence_topics_and_history_to_the_llm() -> Non
     assert MAX_COMPLETION_TOKENS >= 1024
     assert "first person" in llm.messages[0][0]["content"]
     assert (
-        "TOPICS:\nmachine-learning pipelines, backend engineering" in llm.messages[0][-1]["content"]
+        "TOPICS:\nmachine-learning pipelines or backend engineering"
+        in llm.messages[0][-1]["content"]
     )
     assert "EVIDENCE:\nstrong" in llm.messages[0][-1]["content"]
     assert "Earlier question" in llm.messages[0][-2]["content"]
@@ -73,14 +75,7 @@ def test_answerer_uses_safe_templates_without_key_or_after_api_errors() -> None:
     assert not no_key.used_llm
     assert no_key.error == "Answer generation is not configured"
     assert any(word in no_key.answer for word in ("right now", "available", "verify"))
-    assert any(
-        topic in no_key.answer
-        for topic in (
-            "retrieval, RAG, and reranking",
-            "AI products and project work",
-            "local LLMs and automation",
-        )
-    )
+    assert sum(topic in no_key.answer for topic in FALLBACK_TOPICS) >= 2
 
     failed = Answerer(FakeLLM(error=GroqRequestError("server unavailable"))).answer(
         "query", "question", [_hit()], [], "strong"
@@ -92,3 +87,30 @@ def test_answerer_uses_safe_templates_without_key_or_after_api_errors() -> None:
         "query", "question", [_hit()], [], "strong"
     )
     assert limited.error == "The answer service is temporarily rate-limited"
+
+
+def test_aggregate_claim_retries_unsupported_count_then_uses_hedged_examples() -> None:
+    chunk = Chunk("codean#0", "codean.md", "CODEAN is my final year project.", 0)
+    hit = RetrievalHit(chunk, 1.0, 1.0, 0.8, 1, 1)
+    llm = FakeLLM(
+        [
+            "I have completed seven projects, including CODEAN.",
+            "I have completed 7 projects, including CODEAN.",
+        ]
+    )
+
+    result = Answerer(llm).answer(
+        "How many projects have you done yet?",
+        "How many projects have you done yet?",
+        [hit],
+        [],
+        "strong",
+    )
+
+    assert len(llm.messages) == 2
+    assert all("do not give a total" in call[0]["content"] for call in llm.messages)
+    assert not result.used_llm
+    assert "CODEAN" in result.answer
+    assert "Among the projects" in result.answer or "project examples" in result.answer
+    assert "seven" not in result.answer.casefold()
+    assert not any(character.isdigit() for character in result.answer)

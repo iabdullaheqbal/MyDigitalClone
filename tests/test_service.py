@@ -161,3 +161,106 @@ def test_service_validates_retrieval_limits_and_evidence_thresholds() -> None:
         CloneService(retriever, None, history_turns=-1)
     with pytest.raises(ValueError, match="thresholds"):
         CloneService(retriever, None, strong_cosine=0.1, weak_cosine=0.2)
+
+
+def test_live_testing_transcript_routes_acknowledgement_and_aggregate_safely() -> None:
+    hit = RetrievalHit(
+        Chunk("codean#0", "codean.md", "CODEAN is my final year project.", 0),
+        1.0,
+        1.0,
+        0.8,
+        1,
+        1,
+    )
+    retriever = FakeRetriever([hit])
+    llm = FakeLLM(
+        [
+            "I have completed seven projects, including CODEAN.",
+            "I have completed 7 projects, including CODEAN.",
+            "I worked on CODEAN, my final year project.",
+        ]
+    )
+    service = CloneService(retriever, llm, history_turns=0)
+    session = ChatSession()
+
+    greeting = service.answer("Hi", session)
+    aggregate = service.answer("How many projects You have done yet?", session)
+    codean = service.answer("Can you please tell me bit about CODEAN", session)
+    acknowledgement_calls = len(llm.calls)
+    acknowledgement_retrievals = len(retriever.calls)
+    acknowledgement = service.answer("Ahnnn.... thats great!", session)
+    sensitive = service.answer("Can i get Abdullahs's CNIC number and personal details", session)
+
+    assert greeting.intent == "greeting"
+    assert aggregate.intent == "about_me"
+    assert "CODEAN" in aggregate.answer
+    assert "total" in aggregate.answer or "overall count" in aggregate.answer
+    assert any(topic in aggregate.answer for topic in service.topics)
+    assert "seven" not in aggregate.answer.casefold()
+    assert not any(character.isdigit() for character in aggregate.answer)
+    assert codean.used_llm
+    assert "CODEAN" in codean.answer and "final year project" in codean.answer
+    assert acknowledgement.intent == "acknowledgement"
+    assert not acknowledgement.used_llm
+    assert not any(word in acknowledgement.answer.casefold() for word in ("can't", "cannot"))
+    assert len(llm.calls) == acknowledgement_calls
+    assert len(retriever.calls) == acknowledgement_retrievals
+    assert sensitive.intent == "sensitive_request"
+    assert not sensitive.used_llm
+    assert sum(topic in sensitive.answer for topic in service.topics) >= 2
+    assert len(llm.calls) == acknowledgement_calls
+
+
+def test_service_redacts_supervisor_names_from_context_and_answers_by_default() -> None:
+    hit = RetrievalHit(
+        Chunk(
+            "codean#0",
+            "codean.md",
+            "My supervisor is Dr. Casey Example. CODEAN is my final year project.",
+            0,
+        ),
+        1.0,
+        1.0,
+        0.8,
+        1,
+        1,
+    )
+    llm = FakeLLM(
+        [
+            "I worked with Casey Example on CODEAN.",
+            "I worked with Casey Example on CODEAN.",
+        ]
+    )
+    result = CloneService(FakeRetriever([hit]), llm).answer("Tell me about CODEAN", ChatSession())
+
+    assert "Casey Example" not in result.hits[0].chunk.text
+    assert all(
+        "Casey Example" not in message["content"] for call in llm.calls for message in call[0]
+    )
+    assert "Casey Example" not in result.answer
+    assert "third_party_name_redacted" in result.guardrail_flags
+
+
+def test_service_can_show_supervisor_names_when_explicitly_enabled() -> None:
+    hit = RetrievalHit(
+        Chunk(
+            "faq#0",
+            "faq.md",
+            "My supervisor is Dr. Casey Example.",
+            0,
+        ),
+        1.0,
+        1.0,
+        0.8,
+        1,
+        1,
+    )
+    llm = FakeLLM(["I worked with Casey Example."])
+    result = CloneService(
+        FakeRetriever([hit]),
+        llm,
+        show_supervisor_name=True,
+    ).answer("Who supervised me?", ChatSession())
+
+    assert result.used_llm
+    assert "Casey Example" in result.hits[0].chunk.text

@@ -5,13 +5,19 @@ from __future__ import annotations
 import hashlib
 
 from clone.generation.intent import Intent
-from clone.generation.topics import FALLBACK_TOPICS, select_topics
+from clone.generation.topics import (
+    FALLBACK_TOPICS,
+    format_topic_list,
+    matching_topics,
+    select_topics,
+)
 from clone.persona import PERSONA_NAME
 
 _VARIANTS: dict[str, tuple[str, str, str]] = {
     "greeting": (
         (
-            f"Hi! I'm {PERSONA_NAME}'s AI clone, here to chat about the notes. "
+            f"Hi! I'm {PERSONA_NAME}'s AI clone, here to chat about "
+            "Abdullah's work and background. "
             "What would you like to know?"
         ),
         f"Hello! I'm {PERSONA_NAME}'s AI clone. Ask me about {PERSONA_NAME}'s background or work.",
@@ -22,11 +28,13 @@ _VARIANTS: dict[str, tuple[str, str, str]] = {
             f"You're welcome! I'm {PERSONA_NAME}'s AI clone, glad I could help. "
             "What would you like to ask next?"
         ),
-        (
-            f"Happy to help! I'm {PERSONA_NAME}'s AI clone; feel free to ask about "
-            "the notes or work."
-        ),
-        (f"Anytime! I'm {PERSONA_NAME}'s AI clone, here for another question about the notes."),
+        f"Happy to help! I'm {PERSONA_NAME}'s AI clone; feel free to ask about the work.",
+        f"Anytime! I'm {PERSONA_NAME}'s AI clone, glad to keep chatting about the work.",
+    ),
+    "acknowledgement": (
+        "Thanks, I'm glad that was helpful! Want to explore {topics} next?",
+        "I appreciate that! We can keep going with {topics}, if you'd like.",
+        "I'm glad that landed well. Would you like to hear more about {topics}?",
     ),
     "goodbye": (
         (
@@ -58,9 +66,24 @@ _VARIANTS: dict[str, tuple[str, str, str]] = {
             "I can share what the notes say about {topics}."
         ),
     ),
+    "aggregate_hedge": (
+        (
+            "Among the {subject} in my notes, I can point to {examples}. "
+            "I can't confirm a total, so I don't want to guess. I can also discuss {topics}."
+        ),
+        (
+            "I can point to {examples} among the {subject} in my notes, "
+            "but I can't verify an overall count. I can also discuss {topics}."
+        ),
+        (
+            "My notes mention {examples} among my {subject}. "
+            "They don't establish a total, so I won't guess. I can also discuss {topics}."
+        ),
+    ),
     "out_of_scope": (
         (
-            "I'm here to talk about my notes rather than answer general requests. "
+            "I'm here to chat about Abdullah's work and background, rather than "
+            "answer general requests. "
             "I can discuss {topics}."
         ),
         (
@@ -86,7 +109,8 @@ _VARIANTS: dict[str, tuple[str, str, str]] = {
             "I can discuss {topics}."
         ),
         (
-            "I won't share private system instructions. I'm here to talk about the notes, "
+            "I won't share private system instructions. I'm here to talk about "
+            "Abdullah's work and background, "
             "such as {topics}."
         ),
         (
@@ -145,7 +169,8 @@ def response_category(intent: Intent | str) -> str:
     value = Intent(intent)
     return {
         Intent.GREETING: "greeting",
-        Intent.THANKS: "thanks",
+        Intent.THANKS: "acknowledgement",
+        Intent.ACKNOWLEDGEMENT: "acknowledgement",
         Intent.GOODBYE: "goodbye",
         Intent.IDENTITY: "identity",
         Intent.SENSITIVE_REQUEST: "sensitive",
@@ -163,16 +188,35 @@ def render_response(
     category: str,
     message: str,
     topics: tuple[str, ...] | list[str] = FALLBACK_TOPICS,
+    *,
+    previous_answer: str | None = None,
+    examples: tuple[str, ...] = (),
+    subject: str = "projects",
 ) -> str:
-    """Select a stable variant and fill it with two concise topic suggestions."""
+    """Select a stable variant and fill it with curated, concise topic suggestions."""
     if category not in _VARIANTS:
         raise ValueError(f"Unknown response category: {category}")
     variants = _VARIANTS[category]
     choice = int.from_bytes(hashlib.sha256(message.encode("utf-8")).digest()[:4], "big")
-    selected_topics = select_topics(message, topics, count=2)
+    if category == "acknowledgement" and previous_answer:
+        matched = matching_topics(previous_answer, topics)
+        selected_topics = matched[:1] if matched else select_topics(message, topics, count=3)
+    else:
+        selected_topics = select_topics(message, topics, count=3)
+    if examples:
+        example_text = format_topic_list(examples)
+    else:
+        example_text = {
+            "projects": "the project examples described in my notes",
+            "skills": "the skills described in my notes",
+            "topics": "the topics described in my notes",
+            "items": "the examples described in my notes",
+        }[subject]
     rendered = variants[choice % len(variants)].format(
         name=PERSONA_NAME,
-        topics=" and ".join(selected_topics),
+        topics=format_topic_list(selected_topics),
+        examples=example_text,
+        subject=subject,
     )
     return rendered
 

@@ -130,17 +130,20 @@ def load_index(
 
 
 def load_topics(out_dir: Path) -> tuple[str, ...]:
-    """Load indexed topic headings, falling back for older artifacts."""
-    from clone.generation.topics import FALLBACK_TOPICS
+    """Load curated topics from indexed source filenames."""
+    from clone.generation.topics import FALLBACK_TOPICS, topics_for_sources
 
     metadata_path = out_dir / "chunks.json"
     if not metadata_path.is_file():
         return FALLBACK_TOPICS
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    raw_topics = metadata.get("topics")
-    if not isinstance(raw_topics, list):
-        return FALLBACK_TOPICS
-    topics = tuple(
-        topic.strip() for topic in raw_topics if isinstance(topic, str) and topic.strip()
-    )
-    return topics or FALLBACK_TOPICS
+    raw_chunks = metadata.get("chunks")
+    if isinstance(raw_chunks, list):
+        sources = [
+            chunk["source"]
+            for chunk in raw_chunks
+            if isinstance(chunk, dict) and isinstance(chunk.get("source"), str)
+        ]
+        if sources:
+            return tuple(topics_for_sources(sources))
+    return FALLBACK_TOPICS

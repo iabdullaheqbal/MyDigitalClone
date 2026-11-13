@@ -42,7 +42,10 @@ cp -n .env.example .env
 
 Set `GROQ_API_KEY` in the ignored local `.env` file. The model and other
 settings have defaults in `.env.example`; evidence grading is configurable with
-`STRONG_COSINE` and `WEAK_COSINE`. Do not commit `.env`.
+`STRONG_COSINE` and `WEAK_COSINE`. `SHOW_SUPERVISOR_NAME` defaults to `false`,
+redacting names associated with supervisor and teammate roles from retrieved
+passages and answers; set it to `true` only to allow those names to be shown.
+Do not commit `.env`.
 
 The index files in `artifacts/` must match the notes and embedding settings.
 To rebuild the index, run:

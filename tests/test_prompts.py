@@ -32,3 +32,18 @@ def test_rewrite_prompt_contains_only_the_provided_turns_and_question() -> None:
     assert "output only the rewritten question" in REWRITE_SYSTEM_PROMPT
     assert "user: I built Veritas." in messages[-1]["content"]
     assert "What did it use?" in messages[-1]["content"]
+
+
+def test_aggregate_questions_add_explicit_total_guard_to_the_prompt() -> None:
+    messages = answer_messages(
+        "How many projects?",
+        "How many projects have you done?",
+        [],
+        [],
+        aggregate_claim=True,
+    )
+
+    assert "State only what the NOTES list" in messages[0]["content"]
+    assert (
+        "do not give a total unless a note states that total explicitly" in messages[0]["content"]
+    )

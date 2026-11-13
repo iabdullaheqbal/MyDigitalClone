@@ -1,4 +1,4 @@
-"""Topic suggestions derived from indexed note titles, with safe static defaults."""
+"""Curated topic labels derived from indexed document filenames."""
 
 from __future__ import annotations
 
@@ -10,96 +10,119 @@ from pathlib import Path
 from clone.ingestion.loader import Document
 
 FALLBACK_TOPICS = (
-    "background and education",
-    "skills and work style",
-    "backend engineering and infrastructure",
-    "machine-learning pipelines and evaluation",
-    "retrieval, RAG, and reranking",
-    "cybersecurity and digital forensics",
-    "AI products and project work",
-    "local LLMs and automation",
+    "my background and skills",
+    "Resona",
+    "CODEAN, my final year project",
+    "my other projects",
+    "how I think about retrieval, security and backend engineering",
+    "my setup and how I work",
+    "common questions",
 )
-_TOPIC_GROUPS = (
-    ("background and education", re.compile(r"\bbio\b|\bcv\b|\beducation\b", re.I)),
-    (
-        "skills and work style",
-        re.compile(r"cv[_ -]?skills|work[_ -]?style|how[_ -]?i[_ -]?work", re.I),
-    ),
-    (
-        "backend engineering and infrastructure",
-        re.compile(
-            r"backend|infrastructure|api|database|cloud(?:\s+computing|[_ -]?infrastructure)",
-            re.I,
-        ),
-    ),
-    (
-        "machine-learning pipelines and evaluation",
-        re.compile(r"machine[_ -]?learning|ml[_ -]?pipelines|evaluation|transformer", re.I),
-    ),
-    ("retrieval, RAG, and reranking", re.compile(r"retrieval|\brag\b|rerank|bm25", re.I)),
-    (
-        "cybersecurity and digital forensics",
-        re.compile(r"security|cyber|forensic|phishing|intrusion", re.I),
-    ),
-    (
-        "AI products and project work",
-        re.compile(r"project|product|codean|resona|internship", re.I),
-    ),
-    (
-        "local LLMs and automation",
-        re.compile(r"local[_ -]?llm|automation|ollama|n8n|language[_ -]?model", re.I),
-    ),
-)
+
+_FILE_TOPICS = {
+    "bio": "my background and skills",
+    "cv_skills": "my background and skills",
+    "resona": "Resona",
+    "codean": "CODEAN, my final year project",
+    "other_projects": "my other projects",
+    "how_i_work": "my setup and how I work",
+    "faq": "common questions",
+    "opinions": "my opinions",
+}
+_NOTES_TOPIC = "how I think about retrieval, security and backend engineering"
+_TOPIC_STOP_WORDS = {"a", "about", "and", "how", "i", "in", "my", "of", "or", "the", "to"}
+
+
+def topics_for_sources(sources: Iterable[str]) -> list[str]:
+    """Map source filenames to curated labels without exposing raw filenames."""
+    topics: list[str] = []
+    for source in sources:
+        stem = Path(source).stem.casefold()
+        topic = _NOTES_TOPIC if stem.startswith("notes_") else _FILE_TOPICS.get(stem)
+        if topic and topic not in topics:
+            topics.append(topic)
+    return topics or list(FALLBACK_TOPICS)
 
 
 def derive_topics(documents: Iterable[Document]) -> list[str]:
-    """Map filenames/headings to concise topic groups; keep raw titles as fallback."""
-    documents = tuple(documents)
-    title_text: list[str] = []
-    headings: list[str] = []
-    for document in documents:
-        title_text.append(Path(document.name).stem.replace("_", " ").replace("-", " "))
-        headings.extend(
-            re.sub(r"\s+", " ", match.group(1).strip(" #"))
-            for match in re.finditer(r"(?m)^#{1,3}\s+(.+?)\s*#*\s*$", document.text)
-        )
-    metadata_text = " ".join((*title_text, *headings))
-    grouped = [label for label, pattern in _TOPIC_GROUPS if pattern.search(metadata_text)]
-    if grouped:
-        return grouped
-
-    raw_topics = list(dict.fromkeys((*headings, *title_text)))
-    return [topic[:80] for topic in raw_topics if topic.strip()] or list(FALLBACK_TOPICS)
+    """Build persisted topic labels from document filenames."""
+    return topics_for_sources(document.name for document in documents)
 
 
-def select_topics(
-    message: str, topics: Iterable[str] = FALLBACK_TOPICS, count: int = 2
-) -> list[str]:
-    """Choose relevant topics deterministically, using overlap then a stable hash."""
+def matching_topics(text: str, topics: Iterable[str] = FALLBACK_TOPICS) -> list[str]:
+    """Return labels whose words occur in text, ordered by relevance."""
     available = tuple(dict.fromkeys(topic.strip() for topic in topics if topic.strip()))
     if not available:
-        available = FALLBACK_TOPICS
-    count = min(max(count, 1), len(available))
-    query_words = set(re.findall(r"[a-z0-9]+", message.casefold()))
+        return []
+    query_words = set(re.findall(r"[a-z0-9]+", text.casefold())) - _TOPIC_STOP_WORDS
     scored = [
         (
-            sum(word in query_words for word in re.findall(r"[a-z0-9]+", topic.casefold())),
+            sum(
+                word in query_words
+                for word in re.findall(r"[a-z0-9]+", topic.casefold())
+                if word not in _TOPIC_STOP_WORDS
+            ),
             index,
             topic,
         )
         for index, topic in enumerate(available)
     ]
-    if any(score for score, _, _ in scored):
-        return [
-            topic for _, _, topic in sorted(scored, key=lambda item: (-item[0], item[1]))[:count]
-        ]
-    offset = int.from_bytes(hashlib.sha256(message.encode("utf-8")).digest()[:4], "big")
-    return [available[(offset + index) % len(available)] for index in range(count)]
+    offset = int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:4], "big")
+    rotated_index = {index: (index - offset) % len(available) for index in range(len(available))}
+    return [
+        topic
+        for score, index, topic in sorted(
+            scored, key=lambda item: (-item[0], rotated_index[item[1]])
+        )
+        if score
+    ]
 
 
-def topic_examples(topics: Iterable[str] = FALLBACK_TOPICS) -> list[list[str]]:
-    """Create Gradio example-chip inputs from the available note topics."""
+def select_topics(
+    message: str, topics: Iterable[str] = FALLBACK_TOPICS, count: int = 3
+) -> list[str]:
+    """Select up to three relevant labels with deterministic rotation for ties."""
     available = tuple(dict.fromkeys(topic.strip() for topic in topics if topic.strip()))
     if not available:
         available = FALLBACK_TOPICS
-    return [[f"What do the notes say about {topic}?"] for topic in available[:4]]
+    count = min(max(count, 1), 3, len(available))
+    relevant = matching_topics(message, available)
+    offset = int.from_bytes(hashlib.sha256(message.encode("utf-8")).digest()[:4], "big")
+    rotated = available[offset:] + available[:offset]
+    ordered = [*relevant, *(topic for topic in rotated if topic not in relevant)]
+    return ordered[:count]
+
+
+def format_topic_list(topics: Iterable[str]) -> str:
+    """Join labels with standard comma-and-final-or list punctuation."""
+    items = tuple(topics)
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} or {items[1]}"
+    return f"{', '.join(items[:-1])}, or {items[-1]}"
+
+
+def project_examples(sources: Iterable[str]) -> tuple[str, ...]:
+    """Return curated project labels represented by retrieved source files."""
+    project_labels = {
+        "codean": "CODEAN",
+        "resona": "Resona",
+        "other_projects": "my other projects",
+    }
+    examples: list[str] = []
+    for source in sources:
+        label = project_labels.get(Path(source).stem.casefold())
+        if label and label not in examples:
+            examples.append(label)
+    return tuple(examples[:3])
+
+
+def topic_examples(topics: Iterable[str] = FALLBACK_TOPICS) -> list[list[str]]:
+    """Create Gradio example-chip inputs from up to three curated topics."""
+    available = tuple(dict.fromkeys(topic.strip() for topic in topics if topic.strip()))
+    if not available:
+        available = FALLBACK_TOPICS
+    return [[f"What do the notes say about {topic}?"] for topic in available[:3]]

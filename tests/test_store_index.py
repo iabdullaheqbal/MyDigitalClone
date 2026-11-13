@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from clone.generation.topics import FALLBACK_TOPICS, topics_for_sources
 from clone.indexing.builder import build_index
 from clone.indexing.store import fingerprint, load_index, load_topics
 
@@ -47,7 +48,32 @@ def test_build_and_load_round_trip_with_fingerprint(tmp_path: Path) -> None:
     assert loaded_chunks == chunks
     np.testing.assert_allclose(loaded_embeddings, embeddings)
     assert loaded_embeddings.dtype == np.float32
-    assert load_topics(out_dir) == ("Bird watching", "Moon formations", "notes")
+    assert load_topics(out_dir) == FALLBACK_TOPICS
+
+
+def test_topic_labels_are_curated_and_deduplicated_by_source() -> None:
+    topics = topics_for_sources(
+        [
+            "bio.md",
+            "cv_skills.md",
+            "resona.md",
+            "codean.md",
+            "other_projects.md",
+            "notes_security_ml.md",
+            "how_i_work.md",
+            "faq.md",
+        ]
+    )
+
+    assert topics == [
+        "my background and skills",
+        "Resona",
+        "CODEAN, my final year project",
+        "my other projects",
+        "how I think about retrieval, security and backend engineering",
+        "my setup and how I work",
+        "common questions",
+    ]
 
 
 def test_fingerprint_changes_with_data_model_and_chunk_configuration(tmp_path: Path) -> None:
