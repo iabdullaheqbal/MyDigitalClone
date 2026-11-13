@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "iabdullaheqbal", email = "abdullaheqbalhere@gmail.com" }
 ]
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11"
 dependencies = [
     "gradio>=6.31.0",
     "huggingface-hub>=2.4.0",
