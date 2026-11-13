@@ -37,5 +37,5 @@ publishing any metrics.
 The GitHub Actions workflow runs lint, tests, and a wheel build. Only a
 validated push to `main` attempts to synchronize the repository to the Space,
 using the configured `HF_WRITE_TOKEN` secret and `HF_USER`/`HF_SPACE`
-variables. The Space builds its Python 3.11 Gradio app from the root
-`Dockerfile`. Deployment credentials must not be stored in the repository.
+variables. The Space uses the Gradio SDK with Python 3.11 metadata.
+Deployment credentials must not be stored in the repository.
