@@ -41,7 +41,10 @@ class Settings:
 
     groq_api_key: str | None
     groq_model: str
+    groq_models: tuple[str, ...]
+    groq_rewrite_model: str
     groq_base_url: str
+    tokens_per_minute: int
     embed_model: str
     chunk_words: int
     overlap_words: int
@@ -59,10 +62,21 @@ class Settings:
         """Create validated settings without requiring an LLM key."""
         api_key = os.getenv("GROQ_API_KEY", "").strip() or None
         model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
+        models = tuple(
+            dict.fromkeys(
+                item.strip()
+                for item in os.getenv("GROQ_MODELS", model).split(",")
+                if item.strip()
+            )
+        )
+        rewrite_model = os.getenv("GROQ_REWRITE_MODEL", models[0] if models else model).strip()
         base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").strip().rstrip("/")
         embed_model = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2").strip()
-        if not model or not base_url or not embed_model:
-            raise ValueError("GROQ_MODEL, GROQ_BASE_URL, and EMBED_MODEL must not be empty")
+        if not models or not rewrite_model or not base_url or not embed_model:
+            raise ValueError(
+                "GROQ_MODELS, GROQ_REWRITE_MODEL, GROQ_BASE_URL, and EMBED_MODEL "
+                "must not be empty"
+            )
         strong_cosine = _read_float("STRONG_COSINE", 0.45, -1.0, 1.0)
         weak_cosine = _read_float("WEAK_COSINE", 0.20, -1.0, 1.0)
         if strong_cosine < weak_cosine:
@@ -70,8 +84,11 @@ class Settings:
 
         return cls(
             groq_api_key=api_key,
-            groq_model=model,
+            groq_model=models[0],
+            groq_models=models,
+            groq_rewrite_model=rewrite_model,
             groq_base_url=base_url,
+            tokens_per_minute=_read_int("TOKENS_PER_MINUTE", 6_000, 1),
             embed_model=embed_model,
             chunk_words=_read_int("CHUNK_WORDS", 250, 1),
             overlap_words=_read_int("OVERLAP_WORDS", 40, 0),
@@ -79,7 +96,7 @@ class Settings:
             candidates=_read_int("CANDIDATES", 20, 1),
             strong_cosine=strong_cosine,
             weak_cosine=weak_cosine,
-            history_turns=_read_int("HISTORY_TURNS", 6, 0),
+            history_turns=_read_int("HISTORY_TURNS", 2, 0),
             show_supervisor_name=_read_bool("SHOW_SUPERVISOR_NAME", False),
             data_dir=Path(os.getenv("DATA_DIR", str(PROJECT_ROOT / "data"))).expanduser(),
             artifacts_dir=Path(

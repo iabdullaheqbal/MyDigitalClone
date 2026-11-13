@@ -109,6 +109,7 @@ def check_output(
     persona_facts: str = "AI clone",
     topics: Iterable[str] = (),
     third_party_names: Iterable[str] = (),
+    require_first_person: bool = True,
 ) -> OutputCheck:
     """Redact PII and reject ungrounded or prompt-leaking model responses."""
     text = answer.strip()
@@ -130,7 +131,7 @@ def check_output(
         flags.append("rejected_phrase")
     if any(marker in lowered for marker in _PROMPT_LEAK_MARKERS):
         flags.append("prompt_leak")
-    if not _FIRST_PERSON.search(text):
+    if require_first_person and not _FIRST_PERSON.search(text):
         flags.append("missing_first_person")
 
     trusted_text = f"{notes}\n{persona_facts}\n{' '.join(topics)}"
@@ -170,3 +171,57 @@ def check_output(
         flags.append("ungrounded_capitalized_term")
 
     return OutputCheck(text, tuple(dict.fromkeys(flags)), not flags)
+
+
+def repair_grounded_answer(
+    answer: str,
+    notes: str,
+    *,
+    persona_facts: str = "AI clone",
+    topics: Iterable[str] = (),
+    third_party_names: Iterable[str] = (),
+) -> OutputCheck:
+    """Keep only grounded sentences and return the resulting safe text."""
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", answer.strip())
+    kept: list[str] = []
+    flags: list[str] = []
+    safe_redactions = {
+        "credential_redacted",
+        "key_redacted",
+        "email_redacted",
+        "long_digit_run_redacted",
+        "phone_or_digits_redacted",
+        "key_like_string_redacted",
+        "third_party_name_redacted",
+    }
+    for sentence in sentences:
+        if not sentence.strip():
+            continue
+        checked = check_output(
+            sentence,
+            notes,
+            persona_facts=persona_facts,
+            topics=topics,
+            third_party_names=third_party_names,
+            require_first_person=False,
+        )
+        flags.extend(checked.flags)
+        fatal_flags = set(checked.flags) - safe_redactions - {"missing_first_person"}
+        if not fatal_flags and checked.text.strip():
+            kept.append(checked.text.strip())
+    repaired = " ".join(kept)
+    if not repaired or not _FIRST_PERSON.search(repaired):
+        return OutputCheck("", tuple(dict.fromkeys(flags)), False)
+    final = check_output(
+        repaired,
+        notes,
+        persona_facts=persona_facts,
+        topics=topics,
+        third_party_names=third_party_names,
+    )
+    remaining = set(final.flags) - safe_redactions
+    return OutputCheck(
+        final.text,
+        tuple(dict.fromkeys((*flags, *final.flags))),
+        not remaining,
+    )

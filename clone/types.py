@@ -15,6 +15,19 @@ class RetrievalMode(StrEnum):
     HYBRID_RRF = "Hybrid (RRF)"
 
 
+class AnswerReason(StrEnum):
+    """Machine-readable reason for a generated answer or template."""
+
+    OK = "ok"
+    RATE_LIMITED = "rate_limited"
+    EMPTY_LLM_OUTPUT = "empty_llm_output"
+    LLM_HTTP_ERROR = "llm_http_error"
+    GROUNDEDNESS_FAILED = "groundedness_failed"
+    GUARD_TEMPLATE = "guard_template"
+    NO_KEY = "no_key"
+    TIMEOUT = "timeout"
+
+
 @dataclass(frozen=True, slots=True)
 class Chunk:
     """A source passage with a stable identifier and position."""
@@ -63,3 +76,5 @@ class AnswerResult:
     evidence_level: str = "none"
     guardrail_flags: tuple[str, ...] = ()
     not_found_in_notes: bool = False
+    reason: AnswerReason = AnswerReason.OK
+    retry_after_seconds: float | None = None

@@ -12,6 +12,9 @@ def test_from_env_uses_safe_defaults_without_api_key(monkeypatch: pytest.MonkeyP
 
     assert settings.groq_api_key is None
     assert settings.groq_model == "openai/gpt-oss-20b"
+    assert settings.groq_models == ("openai/gpt-oss-20b",)
+    assert settings.groq_rewrite_model == "openai/gpt-oss-20b"
+    assert settings.tokens_per_minute == 6_000
     assert settings.groq_base_url == "https://api.groq.com/openai/v1"
     assert settings.data_dir == Path(__file__).resolve().parents[1] / "data"
     assert settings.strong_cosine == 0.45

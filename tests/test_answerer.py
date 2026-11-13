@@ -1,7 +1,12 @@
 from clone.generation.answerer import MAX_COMPLETION_TOKENS, Answerer
-from clone.generation.llm_client import GroqRateLimitError, GroqRequestError
+from clone.generation.llm_client import (
+    GroqEmptyOutputError,
+    GroqRateLimitError,
+    GroqRequestError,
+    GroqTimeoutError,
+)
 from clone.generation.topics import FALLBACK_TOPICS
-from clone.types import Chunk, RetrievalHit, Turn
+from clone.types import AnswerReason, Chunk, RetrievalHit, Turn
 
 
 class FakeLLM:
@@ -48,7 +53,7 @@ def test_answerer_passes_context_evidence_topics_and_history_to_the_llm() -> Non
     assert result.answer == "I built a small model."
     assert result.used_llm and result.error is None
     assert llm.request_options == [(MAX_COMPLETION_TOKENS, 0.2)]
-    assert MAX_COMPLETION_TOKENS >= 1024
+    assert MAX_COMPLETION_TOKENS == 700
     assert "first person" in llm.messages[0][0]["content"]
     assert (
         "TOPICS:\nmachine-learning pipelines or backend engineering"
@@ -58,15 +63,14 @@ def test_answerer_passes_context_evidence_topics_and_history_to_the_llm() -> Non
     assert "Earlier question" in llm.messages[0][-2]["content"]
 
 
-def test_answerer_retries_once_with_stricter_grounding_then_returns_template() -> None:
+def test_answerer_repairs_unsupported_sentence_without_regeneration() -> None:
     llm = FakeLLM(["I use Python for projects.", "I use Python for projects."])
     result = Answerer(llm).answer("query", "What do I use?", [_hit()], [], "weak")
 
-    assert len(llm.messages) == 2
-    assert "STRICT CHECK" in llm.messages[1][0]["content"]
-    assert result.guardrail_flags == ("ungrounded_capitalized_term",)
+    assert len(llm.messages) == 1
+    assert result.guardrail_flags
+    assert result.reason is AnswerReason.GROUNDEDNESS_FAILED
     assert "I don't have that in my notes" not in result.answer
-    assert any(word in result.answer for word in ("right now", "available", "verify"))
     assert not result.used_llm
 
 
@@ -74,6 +78,7 @@ def test_answerer_uses_safe_templates_without_key_or_after_api_errors() -> None:
     no_key = Answerer(None).answer("query", "question", [_hit()], [], "strong")
     assert not no_key.used_llm
     assert no_key.error == "Answer generation is not configured"
+    assert no_key.reason is AnswerReason.NO_KEY
     assert any(word in no_key.answer for word in ("right now", "available", "verify"))
     assert sum(topic in no_key.answer for topic in FALLBACK_TOPICS) >= 2
 
@@ -82,11 +87,24 @@ def test_answerer_uses_safe_templates_without_key_or_after_api_errors() -> None:
     )
     assert failed.error == "The answer service is temporarily unavailable"
     assert "server unavailable" not in failed.answer
+    assert failed.reason is AnswerReason.LLM_HTTP_ERROR
 
-    limited = Answerer(FakeLLM(error=GroqRateLimitError("rate limit"))).answer(
+    limited = Answerer(FakeLLM(error=GroqRateLimitError(25))).answer(
         "query", "question", [_hit()], [], "strong"
     )
     assert limited.error == "The answer service is temporarily rate-limited"
+    assert limited.reason is AnswerReason.RATE_LIMITED
+    assert limited.retry_after_seconds == 25
+
+    empty = Answerer(FakeLLM(error=GroqEmptyOutputError())).answer(
+        "query", "question", [_hit()], [], "strong"
+    )
+    assert empty.reason is AnswerReason.EMPTY_LLM_OUTPUT
+
+    timed_out = Answerer(FakeLLM(error=GroqTimeoutError())).answer(
+        "query", "question", [_hit()], [], "strong"
+    )
+    assert timed_out.reason is AnswerReason.TIMEOUT
 
 
 def test_aggregate_claim_retries_unsupported_count_then_uses_hedged_examples() -> None:
@@ -107,8 +125,8 @@ def test_aggregate_claim_retries_unsupported_count_then_uses_hedged_examples() -
         "strong",
     )
 
-    assert len(llm.messages) == 2
-    assert all("do not give a total" in call[0]["content"] for call in llm.messages)
+    assert len(llm.messages) == 1
+    assert "do not give a total" in llm.messages[0][0]["content"]
     assert not result.used_llm
     assert "CODEAN" in result.answer
     assert "Among the projects" in result.answer or "project examples" in result.answer

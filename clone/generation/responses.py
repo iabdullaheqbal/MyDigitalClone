@@ -7,11 +7,13 @@ import hashlib
 from clone.generation.intent import Intent
 from clone.generation.topics import (
     FALLBACK_TOPICS,
+    PROJECTS,
     format_topic_list,
     matching_topics,
     select_topics,
 )
 from clone.persona import PERSONA_NAME
+from clone.types import AnswerReason
 
 _VARIANTS: dict[str, tuple[str, str, str]] = {
     "greeting": (
@@ -68,17 +70,38 @@ _VARIANTS: dict[str, tuple[str, str, str]] = {
     ),
     "aggregate_hedge": (
         (
-            "Among the {subject} in my notes, I can point to {examples}. "
-            "I can't confirm a total, so I don't want to guess. I can also discuss {topics}."
+            "Among the projects in my notes are {projects}. "
+            "They don't say how many I've done in total, so I won't guess."
         ),
         (
-            "I can point to {examples} among the {subject} in my notes, "
-            "but I can't verify an overall count. I can also discuss {topics}."
+            "Among the projects in my notes are {projects}; "
+            "my notes don't give a total, so I won't guess."
         ),
         (
-            "My notes mention {examples} among my {subject}. "
-            "They don't establish a total, so I won't guess. I can also discuss {topics}."
+            "Among the projects in my notes are {projects}. "
+            "I can't confirm how many I've done in total, so I won't guess."
         ),
+    ),
+    "personal_location": (
+        "My notes don't share my hometown or residence. I can say I study at UMT, "
+        "and I can talk about {topics}.",
+        "I don't share a hometown or where I live here. I study at UMT, "
+        "and I can discuss {topics}.",
+        "My notes don't provide a hometown or residence; they do say I study at UMT. "
+        "Would you like to hear about {topics}?",
+    ),
+    "status": (
+        "{status_text} I can still talk about {topics}.",
+        "{status_text} If you like, ask me about {topics}.",
+        "{status_text} I'm happy to continue with questions about {topics}.",
+    ),
+    "rate_limited": (
+        "I'm getting a lot of requests and hit a temporary limit; "
+        "please try again in about {seconds} seconds. I can still discuss {topics}.",
+        "I hit a temporary request limit. Please try again in about {seconds} seconds; "
+        "I can talk about {topics} meanwhile.",
+        "There's a temporary limit because I'm getting a lot of requests. "
+        "Please try again in about {seconds} seconds, or ask about {topics}.",
     ),
     "out_of_scope": (
         (
@@ -173,6 +196,8 @@ def response_category(intent: Intent | str) -> str:
         Intent.ACKNOWLEDGEMENT: "acknowledgement",
         Intent.GOODBYE: "goodbye",
         Intent.IDENTITY: "identity",
+        Intent.STATUS: "status",
+        Intent.PERSONAL_LOCATION: "personal_location",
         Intent.SENSITIVE_REQUEST: "sensitive",
         Intent.INJECTION: "injection",
         Intent.ABUSE: "abuse",
@@ -184,6 +209,29 @@ def response_category(intent: Intent | str) -> str:
     }[value]
 
 
+def system_status_text(
+    reason: AnswerReason,
+    retry_after_seconds: float | None = None,
+) -> str:
+    """Translate a prior machine reason into a brief, honest explanation."""
+    seconds = max(1, round(retry_after_seconds or 25))
+    return {
+        AnswerReason.RATE_LIMITED: (
+            "I'm getting a lot of requests and hit a temporary limit; "
+            f"please try again in about {seconds} seconds."
+        ),
+        AnswerReason.EMPTY_LLM_OUTPUT: "Something went wrong on my side.",
+        AnswerReason.LLM_HTTP_ERROR: "Something went wrong on my side.",
+        AnswerReason.TIMEOUT: "The request timed out on my side.",
+        AnswerReason.NO_KEY: "My language model isn't connected right now.",
+        AnswerReason.GROUNDEDNESS_FAILED: (
+            "I couldn't verify a safe answer from my notes, so I held it back."
+        ),
+        AnswerReason.GUARD_TEMPLATE: "I don't have a more specific status to share right now.",
+        AnswerReason.OK: "I don't have a more specific status to share right now.",
+    }[reason]
+
+
 def render_response(
     category: str,
     message: str,
@@ -192,6 +240,8 @@ def render_response(
     previous_answer: str | None = None,
     examples: tuple[str, ...] = (),
     subject: str = "projects",
+    status_text: str = "I don't have a more specific status to share right now.",
+    retry_after_seconds: float | None = None,
 ) -> str:
     """Select a stable variant and fill it with curated, concise topic suggestions."""
     if category not in _VARIANTS:
@@ -203,20 +253,16 @@ def render_response(
         selected_topics = matched[:1] if matched else select_topics(message, topics, count=3)
     else:
         selected_topics = select_topics(message, topics, count=3)
-    if examples:
-        example_text = format_topic_list(examples)
-    else:
-        example_text = {
-            "projects": "the project examples described in my notes",
-            "skills": "the skills described in my notes",
-            "topics": "the topics described in my notes",
-            "items": "the examples described in my notes",
-        }[subject]
+    wait_seconds = max(1, round(retry_after_seconds or 25))
+    if category == "status":
+        status_text = status_text.format(seconds=wait_seconds)
     rendered = variants[choice % len(variants)].format(
         name=PERSONA_NAME,
         topics=format_topic_list(selected_topics),
-        examples=example_text,
+        projects=format_topic_list(PROJECTS),
         subject=subject,
+        status_text=status_text,
+        seconds=wait_seconds,
     )
     return rendered
 

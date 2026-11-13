@@ -19,7 +19,13 @@ _ROLE_NAMES = re.compile(
     rf"(?:\s+(?:is|are|was|were|named|called|include|includes|included))?"
     rf"\s*(?:[:,=-]\s*|\s+)(?P<names>{_NAME}(?:\s*(?:,|and)\s*{_NAME}){{0,2}})"
 )
+_ROLE_AFTER_NAME = re.compile(
+    rf"(?P<names>{_NAME})\s+(?:(?i:(?:is|was|were)\s+))?"
+    r"(?i:(?:(?:my|its|the)\s+)?(?:as\s+)?"
+    r"(?:supervisor|advisor|adviser|mentor|teammate|colleague)\b)",
+)
 _HONORIFIC = re.compile(r"^(?:(?:Dr|Mr|Ms|Mrs|Prof)\.?\s+)", re.IGNORECASE)
+_NON_NAME_WORDS = {"my", "its", "the"}
 _ORG_PRODUCT_PREFIX = re.compile(
     r"\b(?:company|organization|organisation|university|project|product|lab)\s+"
     r"(?:named|called)?\s*",
@@ -28,17 +34,31 @@ _ORG_PRODUCT_PREFIX = re.compile(
 _KNOWN_ORG_OR_PRODUCT_NAMES = {"codean", "resona", "umt"}
 
 
+def _is_resona_partner(name: str, text: str) -> bool:
+    return (
+        name.casefold() == "sharina"
+        and re.search(r"\bresona\b", text, re.IGNORECASE)
+        and re.search(r"\bfront[\w -]*end\b", text, re.IGNORECASE)
+    )
+
+
 def extract_third_party_names(text: str) -> tuple[str, ...]:
     """Find names explicitly attached to supervisor, teammate, or colleague roles."""
     candidates: list[str] = []
-    for match in _ROLE_NAMES.finditer(text):
-        names = re.split(r"\s*,\s*|\s+and\s+", match.group("names"))
-        for candidate in names:
+    matches = [
+        match.group("names")
+        for pattern in (_ROLE_NAMES, _ROLE_AFTER_NAME)
+        for match in pattern.finditer(text)
+    ]
+    for candidate_list in matches:
+        for candidate in re.split(r"\s*,\s*|\s+and\s+", candidate_list):
             name = _HONORIFIC.sub("", candidate).strip()
             if (
                 not name
+                or name.casefold() in _NON_NAME_WORDS
                 or name.casefold() == PERSONA_NAME.casefold()
                 or name.casefold() in _KNOWN_ORG_OR_PRODUCT_NAMES
+                or _is_resona_partner(name, text)
                 or name.isupper()
                 or name in candidates
             ):

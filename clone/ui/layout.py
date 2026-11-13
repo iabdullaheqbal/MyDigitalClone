@@ -27,7 +27,7 @@ def build_ui(service: CloneService, reranker_available: bool = False) -> gr.Bloc
                 value=RetrievalMode.HYBRID_RRF.value,
                 label="Retrieval mode",
             )
-            top_k = gr.Slider(1, 10, value=5, step=1, label="Evidence passages")
+            top_k = gr.Slider(1, 10, value=3, step=1, label="Evidence passages")
             rerank = gr.Checkbox(
                 value=False,
                 label="Cross-encoder reranking",

@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from clone.guardrails.output_checks import redact_pii
-from clone.types import AnswerResult
+from clone.types import AnswerReason, AnswerResult
 
 
 def format_evidence(result: AnswerResult) -> dict[str, object]:
     """Return display-safe retrieval details and per-stage timings."""
+    why = f"Why this reply: {result.reason.value}"
+    if result.reason is AnswerReason.RATE_LIMITED:
+        seconds = max(1, round(result.retry_after_seconds or 25))
+        why += f", retry in ~{seconds}s"
     return {
+        "why_this_reply": why,
+        "reason": result.reason.value,
         "intent": result.intent,
         "evidence_level": result.evidence_level,
         "guardrail_flags": list(result.guardrail_flags),

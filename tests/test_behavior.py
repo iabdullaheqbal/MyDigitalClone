@@ -55,6 +55,9 @@ def test_behavior_set_has_required_draft_counts() -> None:
         "injection": 4,
         "abuse": 2,
         "empty_gibberish": 2,
+        "system_status": 4,
+        "personal_location": 3,
+        "follow_up": 3,
     }
     assert all(case.needs_review for case in cases)
 

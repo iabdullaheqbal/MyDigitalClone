@@ -14,6 +14,8 @@ class Intent(StrEnum):
     THANKS = "thanks"
     GOODBYE = "goodbye"
     IDENTITY = "identity"
+    STATUS = "status"
+    PERSONAL_LOCATION = "personal_location"
     ACKNOWLEDGEMENT = "acknowledgement"
     SENSITIVE_REQUEST = "sensitive_request"
     INJECTION = "injection"
@@ -32,9 +34,23 @@ _INJECTION = re.compile(
     r"|\bpretend\s+(?:to\s+be|you'?re)\b",
     re.IGNORECASE,
 )
+_STATUS = re.compile(
+    r"\b(?:why\s+(?:is|isn't|isnt|was|did)\s+(?:the\s+)?answer\s+service\b"
+    r"|\bare\s+you\s+broken\b|\bwhy\s+did\s+you\s+fail\b|\bwhat\s+happened\b"
+    r"|\bwhy\s+(?:is|isn't|isnt)\s+(?:the\s+)?(?:answer|service)\b"
+    r"|\b(?:answer\s+service|service)\s+(?:isn't|isnt|not)\s+available\b)",
+    re.IGNORECASE,
+)
+_PERSONAL_LOCATION = re.compile(
+    r"\bwhere\s+(?:are\s+you\s+from|do\s+you\s+live|are\s+you\s+from|"
+    r"do\s+you\s+belong|are\s+you\s+based)\b"
+    r"|\bfrom\s+where\s+(?:are\s+you|do\s+you\s+belong)\b"
+    r"|\bwhere\s+do\s+you\s+come\s+from\b",
+    re.IGNORECASE,
+)
 _SENSITIVE = re.compile(
     r"\b(?:phone|mobile|cell)\s*(?:number|no\.?|#)\b"
-    r"|\b(?:home\s+)?address\b|\bwhere\s+do\s+you\s+live\b|\bhome\s+location\b"
+    r"|\b(?:home\s+)?address\b|\bhome\s+location\b"
     r"|\b(?:cnic|national\s+id|identity\s+number|passport\s+number|social\s+security)\b"
     r"|\b(?:password|passcode|api\s+key|secret\s+key|bank\s+(?:details?|info(?:rmation)?)|"
     r"account\s+number|"
@@ -112,6 +128,10 @@ def route_intent(message: str) -> Intent:
         return Intent.ABUSE
     if _IDENTITY.search(normalized):
         return Intent.IDENTITY
+    if _STATUS.search(normalized):
+        return Intent.STATUS
+    if _PERSONAL_LOCATION.search(normalized):
+        return Intent.PERSONAL_LOCATION
     if _GREETINGS.fullmatch(normalized):
         return Intent.GREETING
     if _THANKS.search(normalized):

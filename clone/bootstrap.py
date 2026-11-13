@@ -32,14 +32,26 @@ def create_app() -> gr.Blocks:
         rrf_k=settings.rrf_k,
         reranker=CrossEncoderReranker(),
     )
-    llm = (
-        GroqClient(settings.groq_api_key, settings.groq_model, settings.groq_base_url)
-        if settings.groq_api_key
-        else None
-    )
+    llm = None
+    rewrite_llm = None
+    if settings.groq_api_key:
+        llm = GroqClient(
+            settings.groq_api_key,
+            settings.groq_model,
+            settings.groq_base_url,
+            models=settings.groq_models,
+            tokens_per_minute=settings.tokens_per_minute,
+        )
+        rewrite_llm = GroqClient(
+            settings.groq_api_key,
+            settings.groq_rewrite_model,
+            settings.groq_base_url,
+            tokens_per_minute=settings.tokens_per_minute,
+        )
     service = CloneService(
         retriever,
         llm,
+        rewrite_llm=rewrite_llm,
         strong_cosine=settings.strong_cosine,
         weak_cosine=settings.weak_cosine,
         candidates=settings.candidates,

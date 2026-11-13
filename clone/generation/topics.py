@@ -18,6 +18,15 @@ FALLBACK_TOPICS = (
     "my setup and how I work",
     "common questions",
 )
+PROJECTS = (
+    "CODEAN",
+    "Resona",
+    "Veritas",
+    "FocusOS",
+    "CCDA",
+    "an Urdu fake-news detector",
+    "a CAPTCHA breaker",
+)
 
 _FILE_TOPICS = {
     "bio": "my background and skills",
@@ -102,22 +111,7 @@ def format_topic_list(topics: Iterable[str]) -> str:
         return items[0]
     if len(items) == 2:
         return f"{items[0]} or {items[1]}"
-    return f"{', '.join(items[:-1])}, or {items[-1]}"
-
-
-def project_examples(sources: Iterable[str]) -> tuple[str, ...]:
-    """Return curated project labels represented by retrieved source files."""
-    project_labels = {
-        "codean": "CODEAN",
-        "resona": "Resona",
-        "other_projects": "my other projects",
-    }
-    examples: list[str] = []
-    for source in sources:
-        label = project_labels.get(Path(source).stem.casefold())
-        if label and label not in examples:
-            examples.append(label)
-    return tuple(examples[:3])
+    return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
 def topic_examples(topics: Iterable[str] = FALLBACK_TOPICS) -> list[list[str]]:

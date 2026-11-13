@@ -6,18 +6,25 @@ import logging
 from dataclasses import dataclass, replace
 
 from clone.generation.guard import EvidenceLevel
-from clone.generation.llm_client import ChatClient, GroqError, GroqRateLimitError
+from clone.generation.llm_client import (
+    ChatClient,
+    GroqEmptyOutputError,
+    GroqError,
+    GroqRateLimitError,
+    GroqRequestError,
+    GroqTimeoutError,
+)
 from clone.generation.prompts import answer_messages
-from clone.generation.responses import render_response
-from clone.generation.topics import FALLBACK_TOPICS, project_examples
+from clone.generation.responses import render_response, system_status_text
+from clone.generation.topics import FALLBACK_TOPICS, PROJECTS
 from clone.guardrails.claims import aggregate_subject, is_aggregate_claim
-from clone.guardrails.output_checks import check_output
+from clone.guardrails.output_checks import check_output, repair_grounded_answer
 from clone.guardrails.privacy import redact_names
 from clone.persona import PERSONA_NAME
-from clone.types import RetrievalHit, Turn
+from clone.types import AnswerReason, RetrievalHit, Turn
 
 logger = logging.getLogger(__name__)
-MAX_COMPLETION_TOKENS = 1024
+MAX_COMPLETION_TOKENS = 700
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +35,8 @@ class GenerationResult:
     used_llm: bool
     error: str | None
     guardrail_flags: tuple[str, ...] = ()
+    reason: AnswerReason = AnswerReason.OK
+    retry_after_seconds: float | None = None
 
 
 class Answerer:
@@ -60,88 +69,127 @@ class Answerer:
         ]
         if self.llm is None:
             return self._fallback(
-                question,
-                "Answer generation is not configured",
-                aggregate_claim=aggregate_claim,
-                hits=hits,
+                question, "Answer generation is not configured", AnswerReason.NO_KEY
             )
 
         notes = "\n\n".join(hit.chunk.text for hit in hits)
-        flags: list[str] = []
-        for attempt in range(2):
-            messages = answer_messages(
-                standalone_query,
+        messages = answer_messages(
+            standalone_query,
+            question,
+            hits,
+            safe_history[-2:],
+            topics=self.topics,
+            evidence_level=evidence_level,
+            aggregate_claim=aggregate_claim,
+        )
+        try:
+            answer = self.llm.chat(
+                messages,
+                max_tokens=MAX_COMPLETION_TOKENS,
+                temperature=0.2,
+            ).strip()
+        except GroqRateLimitError as error:
+            return self._fallback(
                 question,
-                hits,
-                safe_history[-6:],
-                topics=self.topics,
-                evidence_level=evidence_level,
-                strict=attempt == 1,
-                aggregate_claim=aggregate_claim,
+                "The answer service is temporarily rate-limited",
+                AnswerReason.RATE_LIMITED,
+                retry_after_seconds=error.retry_after_seconds,
             )
-            try:
-                answer = self.llm.chat(
-                    messages,
-                    max_tokens=MAX_COMPLETION_TOKENS,
-                    temperature=0.2,
-                ).strip()
-            except GroqError as error:
-                logger.warning("Answer generation failed: %s", type(error).__name__)
-                reason = (
-                    "The answer service is temporarily rate-limited"
-                    if isinstance(error, GroqRateLimitError)
-                    else "The answer service is temporarily unavailable"
-                )
-                return self._fallback(
-                    question,
-                    reason,
-                    tuple(flags),
-                    aggregate_claim=aggregate_claim,
-                    hits=hits,
-                )
-
-            checked = check_output(
-                answer,
-                notes,
-                persona_facts=f"AI clone {PERSONA_NAME}",
-                topics=self.topics,
-                third_party_names=third_party_names,
+        except GroqTimeoutError:
+            return self._fallback(
+                question,
+                "The answer service timed out",
+                AnswerReason.TIMEOUT,
             )
-            if checked.acceptable:
-                return GenerationResult(checked.text, True, None, tuple(flags))
-            flags.extend(checked.flags)
+        except GroqEmptyOutputError:
+            return self._fallback(
+                question,
+                "The answer service returned an empty reply",
+                AnswerReason.EMPTY_LLM_OUTPUT,
+            )
+        except GroqRequestError:
+            return self._fallback(
+                question,
+                "The answer service is temporarily unavailable",
+                AnswerReason.LLM_HTTP_ERROR,
+            )
+        except GroqError:
+            return self._fallback(
+                question,
+                "The answer service is temporarily unavailable",
+                AnswerReason.LLM_HTTP_ERROR,
+            )
 
-        logger.info("Rejected model answer: flags=%s", tuple(dict.fromkeys(flags)))
+        checked = check_output(
+            answer,
+            notes,
+            persona_facts=f"AI clone {PERSONA_NAME} {' '.join(PROJECTS)}",
+            topics=self.topics,
+            third_party_names=third_party_names,
+        )
+        if checked.acceptable:
+            return GenerationResult(checked.text, True, None)
+
+        repaired = repair_grounded_answer(
+            answer,
+            notes,
+            persona_facts=f"AI clone {PERSONA_NAME} {' '.join(PROJECTS)}",
+            topics=self.topics,
+            third_party_names=third_party_names,
+        )
+        if repaired.acceptable:
+            logger.info("Answer repaired: reason=%s count=1", AnswerReason.GROUNDEDNESS_FAILED)
+            return GenerationResult(
+                repaired.text,
+                True,
+                None,
+                repaired.flags,
+                AnswerReason.GROUNDEDNESS_FAILED,
+            )
         return self._fallback(
             question,
             "I couldn't verify a safe answer from the notes",
-            tuple(dict.fromkeys(flags)),
+            AnswerReason.GROUNDEDNESS_FAILED,
+            repaired.flags or checked.flags,
             aggregate_claim=aggregate_claim,
-            hits=hits,
         )
 
     def _fallback(
         self,
         question: str,
         reason: str,
+        reason_code: AnswerReason,
         flags: tuple[str, ...] = (),
         *,
         aggregate_claim: bool = False,
-        hits: list[RetrievalHit] | None = None,
+        retry_after_seconds: float | None = None,
     ) -> GenerationResult:
         if aggregate_claim:
             answer = render_response(
                 "aggregate_hedge",
                 question,
                 self.topics,
-                examples=project_examples(hit.chunk.source for hit in hits or []),
                 subject=aggregate_subject(question),
             )
+        elif reason_code is AnswerReason.RATE_LIMITED:
+            answer = render_response(
+                "rate_limited",
+                question,
+                self.topics,
+                retry_after_seconds=retry_after_seconds,
+            )
         else:
-            answer = render_response("unavailable", question, self.topics)
+            answer = render_response(
+                "unavailable",
+                question,
+                self.topics,
+                status_text=system_status_text(reason_code, retry_after_seconds),
+            )
         return GenerationResult(
             answer,
             False,
             reason,
             flags,
+            reason_code,
+            retry_after_seconds,
         )

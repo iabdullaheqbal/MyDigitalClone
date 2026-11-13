@@ -8,16 +8,18 @@ from time import perf_counter
 from typing import Protocol
 
 from clone.chat.session import ChatSession
+from clone.generation.answer_cache import AnswerCache
 from clone.generation.answerer import Answerer
 from clone.generation.guard import assess_evidence
 from clone.generation.intent import Intent, is_about_me_question
 from clone.generation.llm_client import ChatClient
-from clone.generation.query_rewriter import rewrite
-from clone.generation.responses import render_response, response_category
+from clone.generation.query_rewriter import normalize_query, rewrite, should_rewrite
+from clone.generation.responses import render_response, response_category, system_status_text
 from clone.generation.topics import FALLBACK_TOPICS
 from clone.guardrails.input_checks import MAX_SESSION_MESSAGES, check_input
 from clone.guardrails.privacy import redact_names, redact_retrieval_hits
-from clone.types import AnswerResult, RetrievalHit, RetrievalMode
+from clone.persona import PERSONA_VERSION
+from clone.types import AnswerReason, AnswerResult, RetrievalHit, RetrievalMode, Turn
 
 logger = logging.getLogger(__name__)
 _BYPASS_INTENTS = {
@@ -26,6 +28,8 @@ _BYPASS_INTENTS = {
     Intent.ACKNOWLEDGEMENT,
     Intent.GOODBYE,
     Intent.IDENTITY,
+    Intent.STATUS,
+    Intent.PERSONAL_LOCATION,
     Intent.SENSITIVE_REQUEST,
     Intent.INJECTION,
     Intent.ABUSE,
@@ -57,9 +61,11 @@ class CloneService:
         strong_cosine: float = 0.45,
         weak_cosine: float = 0.20,
         candidates: int = 20,
-        history_turns: int = 6,
+        history_turns: int = 2,
         topics: tuple[str, ...] = FALLBACK_TOPICS,
         show_supervisor_name: bool = False,
+        rewrite_llm: ChatClient | None = None,
+        answer_cache: AnswerCache | None = None,
     ) -> None:
         if candidates < 1:
             raise ValueError("candidates must be at least 1")
@@ -69,11 +75,13 @@ class CloneService:
             raise ValueError("Evidence thresholds must satisfy -1 <= weak <= strong <= 1")
         self._retriever = retriever
         self._llm = llm
+        self._rewrite_llm = rewrite_llm if rewrite_llm is not None else llm
         self._answerer = Answerer(llm, topics)
         self._candidates = candidates
-        self._history_turns = history_turns
+        self._history_turns = min(history_turns, 2)
         self.topics = topics or FALLBACK_TOPICS
         self._show_supervisor_name = show_supervisor_name
+        self._answer_cache = answer_cache or AnswerCache()
         self._strong_cosine = strong_cosine
         self._weak_cosine = weak_cosine
 
@@ -82,7 +90,7 @@ class CloneService:
         question: str,
         session: ChatSession,
         mode: RetrievalMode = RetrievalMode.HYBRID_RRF,
-        top_k: int = 5,
+        top_k: int = 3,
         use_reranker: bool = False,
     ) -> AnswerResult:
         """Answer one message, routing special intents before rewrite or retrieval."""
@@ -129,6 +137,9 @@ class CloneService:
                 retain=False,
             )
         if intent in _BYPASS_INTENTS:
+            status_reason = session.last_reason
+            status_retry = session.last_retry_after_seconds
+            status_text = system_status_text(status_reason, status_retry)
             return self._template_result(
                 normalized_question,
                 session,
@@ -137,11 +148,47 @@ class CloneService:
                 intent,
                 flags,
                 started,
+                reason=status_reason if intent is Intent.STATUS else AnswerReason.GUARD_TEMPLATE,
+                retry_after_seconds=status_retry if intent is Intent.STATUS else None,
+                status_text=status_text if intent is Intent.STATUS else None,
+                update_last_reason=False,
             )
 
         history = session.history()
-        context_history = history[-self._history_turns :] if self._history_turns else []
-        standalone_query = normalized_question
+        context_history = _bounded_history(
+            history[-self._history_turns :] if self._history_turns else []
+        )
+        rewrite_needed = should_rewrite(normalized_question, context_history)
+        if not rewrite_needed:
+            cached = self._answer_cache.get(
+                normalize_query(normalized_question),
+                selected_mode,
+                top_k,
+                PERSONA_VERSION,
+            )
+            if cached is not None:
+                cached = replace(
+                    cached,
+                    standalone_query=normalize_query(normalized_question),
+                    latency_ms={
+                        "query_rewrite": 0.0,
+                        "retrieval": 0.0,
+                        "generation": 0.0,
+                        "total": 0.0,
+                    },
+                    guardrail_flags=tuple(
+                        dict.fromkeys((*cached.guardrail_flags, "answer_cache_hit"))
+                    ),
+                )
+                session.record_exchange(
+                    normalized_question,
+                    cached.answer,
+                    reason=cached.reason,
+                    retry_after_seconds=cached.retry_after_seconds,
+                )
+                return cached
+
+        standalone_query = normalize_query(normalized_question)
         retrieval_started = perf_counter()
         hits = self._retriever.retrieve(
             standalone_query,
@@ -156,7 +203,9 @@ class CloneService:
             strong_cosine=self._strong_cosine,
             weak_cosine=self._weak_cosine,
         )
-        hits, third_party_names = redact_retrieval_hits(hits, show_names=self._show_supervisor_name)
+        hits, third_party_names = redact_retrieval_hits(
+            hits, show_names=self._show_supervisor_name
+        )
         if third_party_names:
             context_history = [
                 replace(turn, content=redact_names(turn.content, third_party_names)[0])
@@ -164,11 +213,12 @@ class CloneService:
             ]
         rewrite_ms = 0.0
 
-        if evidence_level != "none" and self._llm is not None and context_history:
+        if evidence_level != "none" and self._rewrite_llm is not None and rewrite_needed:
             rewrite_started = perf_counter()
-            rewritten_query = rewrite(context_history, normalized_question, self._llm)
+            rewritten_query = rewrite(context_history, normalized_question, self._rewrite_llm)
             rewrite_ms = (perf_counter() - rewrite_started) * 1000
-            if rewritten_query != normalized_question:
+            rewritten_query = normalize_query(rewritten_query)
+            if rewritten_query != standalone_query:
                 retrieval_started = perf_counter()
                 rewritten_hits = self._retriever.retrieve(
                     rewritten_query,
@@ -216,15 +266,22 @@ class CloneService:
             )
             category = "not_in_notes" if intent is Intent.NOT_IN_NOTES else "out_of_scope"
             flags.append("no_evidence")
-            answer = render_response(category, normalized_question, self.topics)
+            answer = render_response(
+                category,
+                normalized_question,
+                self.topics,
+                previous_answer=_last_assistant_answer(session),
+            )
             session.record_exchange(
                 normalized_question,
                 answer,
                 retain_in_history=intent is Intent.NOT_IN_NOTES,
+                reason=AnswerReason.GUARD_TEMPLATE,
             )
             total_ms = (perf_counter() - started) * 1000
             logger.info("Message routed: intent=%s flags=%s", intent.value, tuple(flags))
-            return AnswerResult(
+            logger.info("answer_reason=%s count=1", AnswerReason.GUARD_TEMPLATE.value)
+            result = AnswerResult(
                 answer=answer,
                 standalone_query=standalone_query,
                 hits=hits,
@@ -241,7 +298,9 @@ class CloneService:
                 evidence_level=evidence_level,
                 guardrail_flags=tuple(flags),
                 not_found_in_notes=intent is Intent.NOT_IN_NOTES,
+                reason=AnswerReason.GUARD_TEMPLATE,
             )
+            return result
 
         intent = Intent.ABOUT_ME
         generation_started = perf_counter()
@@ -254,12 +313,17 @@ class CloneService:
             third_party_names,
         )
         generation_ms = (perf_counter() - generation_started) * 1000
-        session.record_exchange(normalized_question, generated.answer)
+        session.record_exchange(
+            normalized_question,
+            generated.answer,
+            reason=generated.reason,
+            retry_after_seconds=generated.retry_after_seconds,
+        )
         all_flags = tuple(dict.fromkeys([*flags, *generated.guardrail_flags]))
         total_ms = (perf_counter() - started) * 1000
         logger.info("Message routed: intent=%s flags=%s", intent.value, all_flags)
 
-        return AnswerResult(
+        result = AnswerResult(
             answer=generated.answer,
             standalone_query=standalone_query,
             hits=hits,
@@ -277,7 +341,19 @@ class CloneService:
             evidence_level=evidence_level,
             guardrail_flags=all_flags,
             not_found_in_notes=False,
+            reason=generated.reason,
+            retry_after_seconds=generated.retry_after_seconds,
         )
+        if not rewrite_needed and generated.reason is AnswerReason.OK and generated.used_llm:
+            self._answer_cache.put(
+                standalone_query,
+                selected_mode,
+                top_k,
+                PERSONA_VERSION,
+                result,
+            )
+        logger.info("answer_reason=%s count=1", generated.reason.value)
+        return result
 
     def _template_result(
         self,
@@ -290,21 +366,32 @@ class CloneService:
         started: float,
         *,
         retain: bool = False,
+        reason: AnswerReason = AnswerReason.GUARD_TEMPLATE,
+        retry_after_seconds: float | None = None,
+        status_text: str | None = None,
+        update_last_reason: bool = False,
     ) -> AnswerResult:
-        previous_answer = next(
-            (turn.content for turn in reversed(session.history()) if turn.role == "assistant"),
-            None,
-        )
         answer = render_response(
             category,
             question,
             self.topics,
-            previous_answer=previous_answer,
+            previous_answer=_last_assistant_answer(session),
+            status_text=status_text
+            or "I don't have a more specific status to share right now.",
+            retry_after_seconds=retry_after_seconds,
         )
         if question:
-            session.record_exchange(question, answer, retain_in_history=retain)
+            session.record_exchange(
+                question,
+                answer,
+                retain_in_history=retain,
+                reason=reason,
+                retry_after_seconds=retry_after_seconds,
+                update_last_reason=update_last_reason,
+            )
         all_flags = tuple(dict.fromkeys(flags))
         logger.info("Message routed: intent=%s flags=%s", intent.value, all_flags)
+        logger.info("answer_reason=%s count=1", reason.value)
         return AnswerResult(
             answer=answer,
             standalone_query=question,
@@ -322,4 +409,27 @@ class CloneService:
             evidence_level="none",
             guardrail_flags=all_flags,
             not_found_in_notes=category == "not_in_notes",
+            reason=reason,
+            retry_after_seconds=retry_after_seconds,
         )
+
+
+def _last_assistant_answer(session: ChatSession) -> str | None:
+    return next(
+        (turn.content for turn in reversed(session.history()) if turn.role == "assistant"),
+        None,
+    )
+
+
+def _bounded_history(history: list[Turn]) -> list[Turn]:
+    """Keep the two most recent turns within the shared 1500-character cap."""
+    selected = history[-2:]
+    excess = sum(len(turn.content) for turn in selected) - 1_500
+    bounded = list(selected)
+    for index, turn in enumerate(bounded):
+        if excess <= 0:
+            break
+        trimmed = min(excess, len(turn.content))
+        bounded[index] = replace(turn, content=turn.content[trimmed:])
+        excess -= trimmed
+    return bounded

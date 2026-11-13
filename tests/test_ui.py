@@ -3,7 +3,7 @@ import gradio as gr
 from clone.bootstrap import create_app
 from clone.chat.session import ChatSession
 from clone.service import CloneService
-from clone.types import AnswerResult, Chunk, RetrievalHit, RetrievalMode
+from clone.types import AnswerReason, AnswerResult, Chunk, RetrievalHit, RetrievalMode
 from clone.ui.formatting import format_evidence
 from clone.ui.handlers import clear_conversation, handle_message
 from clone.ui.layout import build_ui
@@ -68,7 +68,7 @@ def test_handler_updates_transcript_session_and_evidence() -> None:
         "A question",
         "I found a grounded answer.",
     ]
-    assert evidence["retrieval_query"] == "A question"
+    assert evidence["retrieval_query"] == "a question"
     assert evidence["used_groq"] is True
     assert evidence["intent"] == "about_me"
     assert evidence["evidence_level"] == "strong"
@@ -132,3 +132,22 @@ def test_evidence_format_redacts_private_details_from_passages() -> None:
 
     assert "person@example.test" not in formatted["passages"][0]["text"]
     assert "1234567890" not in formatted["passages"][0]["text"]
+
+
+def test_evidence_format_shows_reason_and_retry_estimate() -> None:
+    result = AnswerResult(
+        answer="Please retry soon.",
+        standalone_query="query",
+        hits=[],
+        mode=RetrievalMode.DENSE_ONLY,
+        declined=True,
+        used_llm=False,
+        latency_ms={},
+        reason=AnswerReason.RATE_LIMITED,
+        retry_after_seconds=25,
+    )
+
+    formatted = format_evidence(result)
+
+    assert formatted["reason"] == "rate_limited"
+    assert formatted["why_this_reply"] == "Why this reply: rate_limited, retry in ~25s"

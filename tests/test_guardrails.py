@@ -1,5 +1,10 @@
+from pathlib import Path
+
+from clone.generation.topics import PROJECTS
 from clone.guardrails.output_checks import check_output, contains_pii
-from clone.guardrails.privacy import extract_third_party_names
+from clone.guardrails.privacy import extract_third_party_names, redact_retrieval_hits
+from clone.ingestion.loader import load_documents
+from clone.types import Chunk, RetrievalHit
 
 
 def test_output_checks_redact_contact_and_credential_patterns() -> None:
@@ -68,3 +73,28 @@ def test_output_checks_redact_third_party_names_but_preserve_product_names() -> 
     assert extract_third_party_names(
         "My teammates are Alice Example and Bob Sample; CODEAN is my project."
     ) == ("Alice Example", "Bob Sample")
+
+
+def test_real_codean_supervisor_is_scrubbed_and_resona_partner_is_preserved() -> None:
+    data_dir = Path(__file__).resolve().parents[1] / "data"
+    documents = {document.name: document.text for document in load_documents(data_dir)}
+    codean = documents["codean.md"]
+    resona = documents["resona.md"]
+    codean_hit = RetrievalHit(Chunk("codean#0", "codean.md", codean, 0), 1, 1, 1, 1, 1)
+    resona_hit = RetrievalHit(Chunk("resona#0", "resona.md", resona, 0), 1, 1, 1, 1, 1)
+
+    safe_codean, names = redact_retrieval_hits([codean_hit], show_names=False)
+    safe_resona, resona_names = redact_retrieval_hits([resona_hit], show_names=False)
+
+    assert names == ("Muhammad Wasim",)
+    assert "Dr. Muhammad Wasim" not in safe_codean[0].chunk.text
+    assert "Sharina" in safe_resona[0].chunk.text
+    assert "Sharina" not in resona_names
+    assert "CODEAN" in PROJECTS
+    assert "Resona" in PROJECTS
+
+
+def test_grounding_matches_entity_names_without_case_sensitivity() -> None:
+    output = check_output("I worked on RESONA.", notes="I worked on Resona.")
+
+    assert output.acceptable

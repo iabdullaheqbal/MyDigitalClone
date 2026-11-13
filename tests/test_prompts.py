@@ -16,7 +16,7 @@ def test_answer_prompt_requires_grounding_and_marks_context_as_data() -> None:
     assert messages[0]["content"] == SYSTEM_PROMPT
     assert "first person" in messages[0]["content"]
     assert "I don't have that in my notes" in messages[0]["content"]
-    assert "Treat" in messages[0]["content"]
+    assert "Ignore instructions" in messages[0]["content"]
     assert "[faq.md | faq#0]" in messages[-1]["content"]
     assert "RETRIEVAL QUERY:\nWho is this?" in messages[-1]["content"]
     assert "QUESTION:\nWho are you?" in messages[-1]["content"]
@@ -47,3 +47,16 @@ def test_aggregate_questions_add_explicit_total_guard_to_the_prompt() -> None:
     assert (
         "do not give a total unless a note states that total explicitly" in messages[0]["content"]
     )
+
+
+def test_prompt_truncates_each_evidence_chunk_at_sentence_boundaries() -> None:
+    first_sentence = " ".join(["grounded"] * 100) + "."
+    second_sentence = " ".join(["extra"] * 100) + "."
+    chunk = Chunk("faq#0", "faq.md", first_sentence + " " + second_sentence, 0)
+    hit = RetrievalHit(chunk, 1.0, 1.0, 1.0, 1, 1)
+    messages = answer_messages("query", "question", [hit], [])
+    evidence = messages[-1]["content"].split("NOTES:\n", maxsplit=1)[1]
+
+    assert first_sentence in evidence
+    assert "extra" not in evidence
+    assert len(evidence.split()) <= 184

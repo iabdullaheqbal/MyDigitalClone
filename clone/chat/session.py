@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from clone.types import Turn
+from clone.types import AnswerReason, Turn
 
 
 @dataclass(slots=True)
@@ -13,6 +13,8 @@ class ChatSession:
 
     turns: list[Turn] = field(default_factory=list)
     messages_used: int = 0
+    last_reason: AnswerReason = AnswerReason.OK
+    last_retry_after_seconds: float | None = None
 
     def history(self) -> list[Turn]:
         """Return a copy so callers cannot mutate the stored transcript."""
@@ -29,11 +31,17 @@ class ChatSession:
         answer: str,
         *,
         retain_in_history: bool = True,
+        reason: AnswerReason = AnswerReason.OK,
+        retry_after_seconds: float | None = None,
+        update_last_reason: bool = True,
     ) -> None:
         """Count a completed exchange and optionally retain it for continuity."""
         if not question.strip():
             raise ValueError("Question must not be empty")
         self.messages_used = self.user_message_count + 1
+        if update_last_reason:
+            self.last_reason = reason
+            self.last_retry_after_seconds = retry_after_seconds
         if retain_in_history:
             self.turns.extend((Turn("user", question), Turn("assistant", answer)))
 
@@ -41,3 +49,5 @@ class ChatSession:
         """Remove all conversation history from this session."""
         self.turns.clear()
         self.messages_used = 0
+        self.last_reason = AnswerReason.OK
+        self.last_retry_after_seconds = None

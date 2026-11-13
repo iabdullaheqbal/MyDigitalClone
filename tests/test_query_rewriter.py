@@ -29,7 +29,7 @@ def test_rewriter_skips_empty_history_and_cleans_model_prefixes() -> None:
     assert rewrite([Turn("user", "I built Veritas.")], "What did it use?", llm) == (
         "What did Veritas use?"
     )
-    assert llm.calls[0][1:] == (1024, 0)
+    assert llm.calls[0][1:] == (256, 0)
 
 
 def test_rewriter_uses_only_recent_history_and_falls_back_on_api_failure() -> None:
@@ -39,7 +39,7 @@ def test_rewriter_uses_only_recent_history_and_falls_back_on_api_failure() -> No
     assert rewrite(history, "Why?", llm) == "What happened?"
     transcript = llm.calls[0][0][-1]["content"]
     assert "turn-0" not in transcript
-    assert "turn-2" in transcript
+    assert "turn-6" in transcript
     assert "turn-7" in transcript
 
     broken = FakeLLM(error=GroqRequestError("offline"))
