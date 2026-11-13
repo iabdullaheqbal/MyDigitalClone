@@ -10,9 +10,11 @@ from typing import Protocol
 from clone.chat.session import ChatSession
 from clone.generation.answer_cache import AnswerCache
 from clone.generation.answerer import Answerer
+from clone.generation.faq import FALLBACK_FAQ_QUESTIONS
 from clone.generation.guard import assess_evidence
 from clone.generation.intent import Intent, is_about_me_question
 from clone.generation.llm_client import ChatClient
+from clone.generation.query_normalizer import normalize_visitor_query
 from clone.generation.query_rewriter import normalize_query, rewrite, should_rewrite
 from clone.generation.responses import render_response, response_category, system_status_text
 from clone.generation.topics import FALLBACK_TOPICS
@@ -30,6 +32,7 @@ _BYPASS_INTENTS = {
     Intent.IDENTITY,
     Intent.STATUS,
     Intent.PERSONAL_LOCATION,
+    Intent.LIST_FAQ,
     Intent.SENSITIVE_REQUEST,
     Intent.INJECTION,
     Intent.ABUSE,
@@ -63,6 +66,7 @@ class CloneService:
         candidates: int = 20,
         history_turns: int = 2,
         topics: tuple[str, ...] = FALLBACK_TOPICS,
+        faq_questions: tuple[str, ...] = FALLBACK_FAQ_QUESTIONS,
         show_supervisor_name: bool = False,
         rewrite_llm: ChatClient | None = None,
         answer_cache: AnswerCache | None = None,
@@ -80,6 +84,7 @@ class CloneService:
         self._candidates = candidates
         self._history_turns = min(history_turns, 2)
         self.topics = topics or FALLBACK_TOPICS
+        self.faq_questions = faq_questions or FALLBACK_FAQ_QUESTIONS
         self._show_supervisor_name = show_supervisor_name
         self._answer_cache = answer_cache or AnswerCache()
         self._strong_cosine = strong_cosine
@@ -94,16 +99,17 @@ class CloneService:
         use_reranker: bool = False,
     ) -> AnswerResult:
         """Answer one message, routing special intents before rewrite or retrieval."""
-        normalized_question = question.strip()
+        display_question = question.strip()
+        normalized_question = normalize_visitor_query(display_question)
         if top_k < 1:
             raise ValueError("top_k must be at least 1")
         selected_mode = RetrievalMode(mode)
         started = perf_counter()
-        input_check = check_input(question)
+        input_check = check_input(display_question)
         flags = list(input_check.flags)
         intent = input_check.intent_override or input_check.intent
 
-        if not normalized_question:
+        if not display_question:
             return self._template_result(
                 "",
                 session,
@@ -116,7 +122,7 @@ class CloneService:
             )
         if "too_long" in flags:
             return self._template_result(
-                normalized_question,
+                display_question,
                 session,
                 selected_mode,
                 "too_long",
@@ -127,7 +133,7 @@ class CloneService:
             )
         if session.user_message_count >= MAX_SESSION_MESSAGES:
             return self._template_result(
-                normalized_question,
+                display_question,
                 session,
                 selected_mode,
                 "session_limit",
@@ -141,7 +147,7 @@ class CloneService:
             status_retry = session.last_retry_after_seconds
             status_text = system_status_text(status_reason, status_retry)
             return self._template_result(
-                normalized_question,
+                display_question,
                 session,
                 selected_mode,
                 response_category(intent),
@@ -151,6 +157,7 @@ class CloneService:
                 reason=status_reason if intent is Intent.STATUS else AnswerReason.GUARD_TEMPLATE,
                 retry_after_seconds=status_retry if intent is Intent.STATUS else None,
                 status_text=status_text if intent is Intent.STATUS else None,
+                faq_questions=self.faq_questions,
                 update_last_reason=False,
             )
 
@@ -158,7 +165,7 @@ class CloneService:
         context_history = _bounded_history(
             history[-self._history_turns :] if self._history_turns else []
         )
-        rewrite_needed = should_rewrite(normalized_question, context_history)
+        rewrite_needed = should_rewrite(display_question, context_history)
         if not rewrite_needed:
             cached = self._answer_cache.get(
                 normalize_query(normalized_question),
@@ -181,7 +188,7 @@ class CloneService:
                     ),
                 )
                 session.record_exchange(
-                    normalized_question,
+                    display_question,
                     cached.answer,
                     reason=cached.reason,
                     retry_after_seconds=cached.retry_after_seconds,
@@ -268,12 +275,13 @@ class CloneService:
             flags.append("no_evidence")
             answer = render_response(
                 category,
-                normalized_question,
+                display_question,
                 self.topics,
                 previous_answer=_last_assistant_answer(session),
+                faq_questions=self.faq_questions,
             )
             session.record_exchange(
-                normalized_question,
+                display_question,
                 answer,
                 retain_in_history=intent is Intent.NOT_IN_NOTES,
                 reason=AnswerReason.GUARD_TEMPLATE,
@@ -306,7 +314,7 @@ class CloneService:
         generation_started = perf_counter()
         generated = self._answerer.answer(
             standalone_query,
-            normalized_question,
+            display_question,
             hits,
             context_history,
             evidence_level,
@@ -314,7 +322,7 @@ class CloneService:
         )
         generation_ms = (perf_counter() - generation_started) * 1000
         session.record_exchange(
-            normalized_question,
+            display_question,
             generated.answer,
             reason=generated.reason,
             retry_after_seconds=generated.retry_after_seconds,
@@ -369,6 +377,7 @@ class CloneService:
         reason: AnswerReason = AnswerReason.GUARD_TEMPLATE,
         retry_after_seconds: float | None = None,
         status_text: str | None = None,
+        faq_questions: tuple[str, ...] = FALLBACK_FAQ_QUESTIONS,
         update_last_reason: bool = False,
     ) -> AnswerResult:
         answer = render_response(
@@ -379,6 +388,7 @@ class CloneService:
             status_text=status_text
             or "I don't have a more specific status to share right now.",
             retry_after_seconds=retry_after_seconds,
+            faq_questions=faq_questions,
         )
         if question:
             session.record_exchange(

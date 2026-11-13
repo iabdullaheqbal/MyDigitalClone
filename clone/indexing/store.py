@@ -71,6 +71,7 @@ def save_index(
     overlap_words: int,
     data_fingerprint: str,
     topics: list[str] | None = None,
+    faq_questions: tuple[str, ...] | None = None,
 ) -> None:
     """Write a normalized NumPy matrix and its matching JSON metadata."""
     if not chunks:
@@ -82,6 +83,7 @@ def save_index(
         "model": model,
         "chunk_config": {"chunk_words": chunk_words, "overlap_words": overlap_words},
         "topics": topics or [],
+        "faq_questions": list(faq_questions or []),
         "chunks": [
             {"id": chunk.id, "source": chunk.source, "text": chunk.text, "index": chunk.index}
             for chunk in chunks
@@ -147,3 +149,23 @@ def load_topics(out_dir: Path) -> tuple[str, ...]:
         if sources:
             return tuple(topics_for_sources(sources))
     return FALLBACK_TOPICS
+
+
+def load_faq_questions(out_dir: Path) -> tuple[str, ...]:
+    """Load FAQ questions persisted during indexing, with a legacy fallback."""
+    from clone.generation.faq import FALLBACK_FAQ_QUESTIONS
+
+    metadata_path = out_dir / "chunks.json"
+    if not metadata_path.is_file():
+        return FALLBACK_FAQ_QUESTIONS
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    raw_questions = metadata.get("faq_questions")
+    if isinstance(raw_questions, list):
+        questions = tuple(
+            question.strip()
+            for question in raw_questions[:5]
+            if isinstance(question, str) and question.strip()
+        )
+        if questions:
+            return questions
+    return FALLBACK_FAQ_QUESTIONS

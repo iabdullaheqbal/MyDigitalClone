@@ -2,12 +2,15 @@ import re
 
 import pytest
 
+from clone.generation.faq import FALLBACK_FAQ_QUESTIONS
 from clone.generation.intent import Intent, is_about_me_question, route_intent
 from clone.generation.responses import render_response, response_variants
 from clone.generation.topics import (
+    CHIP_QUESTIONS,
     FALLBACK_TOPICS,
     format_topic_list,
     select_topics,
+    topic_examples,
 )
 from clone.guardrails.input_checks import MAX_INPUT_LENGTH, check_input
 
@@ -27,6 +30,8 @@ from clone.guardrails.input_checks import MAX_INPUT_LENGTH, check_input
         ("Goodbye, take care.", Intent.GOODBYE),
         ("Are you real?", Intent.IDENTITY),
         ("Are you AI?", Intent.IDENTITY),
+        ("What are you?", Intent.IDENTITY),
+        ("What are you studying?", Intent.ABOUT_ME_OR_OTHER),
         ("Why is the answer service not available?", Intent.STATUS),
         ("Are you broken?", Intent.STATUS),
         ("Why did you fail?", Intent.STATUS),
@@ -40,6 +45,11 @@ from clone.guardrails.input_checks import MAX_INPUT_LENGTH, check_input
         ("", Intent.GIBBERISH_OR_EMPTY),
         ("asdfghjkl", Intent.GIBBERISH_OR_EMPTY),
         ("What laptop do you use?", Intent.ABOUT_ME_OR_OTHER),
+        ("What do the notes say about common questions?", Intent.LIST_FAQ),
+        ("What questions can I ask?", Intent.LIST_FAQ),
+        ("What do people usually ask?", Intent.LIST_FAQ),
+        ("FAQ", Intent.LIST_FAQ),
+        ("help", Intent.LIST_FAQ),
     ],
 )
 def test_rule_based_intent_routes(message: str, expected: Intent) -> None:
@@ -95,3 +105,22 @@ def test_all_response_variants_use_first_person() -> None:
     for category in response_variants():
         rendered = [render_response(category, f"sample {index}") for index in range(30)]
         assert all(first_person.search(response) for response in rendered), category
+
+
+def test_faq_template_lists_five_real_questions_without_retrieval_wording() -> None:
+    response = render_response("list_faq", "common questions")
+
+    assert response.count("\n- ") == 5
+    assert "What is CODEAN?" in response
+    assert "What is Resona?" in response
+    assert "what do the notes say about" not in response.casefold()
+    assert FALLBACK_FAQ_QUESTIONS[0] in response
+
+
+def test_chips_are_exact_curated_visitor_questions() -> None:
+    examples = topic_examples()
+
+    assert len(examples) == 10
+    assert tuple(example[0] for example in examples) == CHIP_QUESTIONS
+    assert all("notes" not in question.casefold() for (question,) in examples)
+    assert "common questions" not in FALLBACK_TOPICS

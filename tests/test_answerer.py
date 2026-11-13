@@ -5,7 +5,6 @@ from clone.generation.llm_client import (
     GroqRequestError,
     GroqTimeoutError,
 )
-from clone.generation.topics import FALLBACK_TOPICS
 from clone.types import AnswerReason, Chunk, RetrievalHit, Turn
 
 
@@ -79,14 +78,14 @@ def test_answerer_uses_safe_templates_without_key_or_after_api_errors() -> None:
     assert not no_key.used_llm
     assert no_key.error == "Answer generation is not configured"
     assert no_key.reason is AnswerReason.NO_KEY
-    assert any(word in no_key.answer for word in ("right now", "available", "verify"))
-    assert sum(topic in no_key.answer for topic in FALLBACK_TOPICS) >= 2
+    assert "From faq.md:" in no_key.answer
 
     failed = Answerer(FakeLLM(error=GroqRequestError("server unavailable"))).answer(
         "query", "question", [_hit()], [], "strong"
     )
     assert failed.error == "The answer service is temporarily unavailable"
     assert "server unavailable" not in failed.answer
+    assert "From faq.md:" in failed.answer
     assert failed.reason is AnswerReason.LLM_HTTP_ERROR
 
     limited = Answerer(FakeLLM(error=GroqRateLimitError(25))).answer(
@@ -95,16 +94,20 @@ def test_answerer_uses_safe_templates_without_key_or_after_api_errors() -> None:
     assert limited.error == "The answer service is temporarily rate-limited"
     assert limited.reason is AnswerReason.RATE_LIMITED
     assert limited.retry_after_seconds == 25
+    assert "try again in about 25 seconds" in limited.answer
+    assert "From faq.md:" in limited.answer
 
     empty = Answerer(FakeLLM(error=GroqEmptyOutputError())).answer(
         "query", "question", [_hit()], [], "strong"
     )
     assert empty.reason is AnswerReason.EMPTY_LLM_OUTPUT
+    assert "From faq.md:" in empty.answer
 
     timed_out = Answerer(FakeLLM(error=GroqTimeoutError())).answer(
         "query", "question", [_hit()], [], "strong"
     )
     assert timed_out.reason is AnswerReason.TIMEOUT
+    assert "From faq.md:" in timed_out.answer
 
 
 def test_aggregate_claim_retries_unsupported_count_then_uses_hedged_examples() -> None:

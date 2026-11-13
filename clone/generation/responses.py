@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
+from clone.generation.faq import FALLBACK_FAQ_QUESTIONS
 from clone.generation.intent import Intent
 from clone.generation.topics import (
     FALLBACK_TOPICS,
@@ -89,6 +90,11 @@ _VARIANTS: dict[str, tuple[str, str, str]] = {
         "and I can discuss {topics}.",
         "My notes don't provide a hometown or residence; they do say I study at UMT. "
         "Would you like to hear about {topics}?",
+    ),
+    "list_faq": (
+        "I can help with questions like:\n{faq_questions}",
+        "You could ask me things like:\n{faq_questions}",
+        "I can help with questions such as:\n{faq_questions}",
     ),
     "status": (
         "{status_text} I can still talk about {topics}.",
@@ -198,6 +204,7 @@ def response_category(intent: Intent | str) -> str:
         Intent.IDENTITY: "identity",
         Intent.STATUS: "status",
         Intent.PERSONAL_LOCATION: "personal_location",
+        Intent.LIST_FAQ: "list_faq",
         Intent.SENSITIVE_REQUEST: "sensitive",
         Intent.INJECTION: "injection",
         Intent.ABUSE: "abuse",
@@ -242,6 +249,7 @@ def render_response(
     subject: str = "projects",
     status_text: str = "I don't have a more specific status to share right now.",
     retry_after_seconds: float | None = None,
+    faq_questions: tuple[str, ...] = FALLBACK_FAQ_QUESTIONS,
 ) -> str:
     """Select a stable variant and fill it with curated, concise topic suggestions."""
     if category not in _VARIANTS:
@@ -256,6 +264,7 @@ def render_response(
     wait_seconds = max(1, round(retry_after_seconds or 25))
     if category == "status":
         status_text = status_text.format(seconds=wait_seconds)
+    faq_list = "\n".join(f"- {question}" for question in faq_questions[:5])
     rendered = variants[choice % len(variants)].format(
         name=PERSONA_NAME,
         topics=format_topic_list(selected_topics),
@@ -263,6 +272,7 @@ def render_response(
         subject=subject,
         status_text=status_text,
         seconds=wait_seconds,
+        faq_questions=faq_list,
     )
     return rendered
 

@@ -16,7 +16,19 @@ FALLBACK_TOPICS = (
     "my other projects",
     "how I think about retrieval, security and backend engineering",
     "my setup and how I work",
-    "common questions",
+)
+# These visitor-voice examples are curated and remain subject to owner approval.
+CHIP_QUESTIONS = (
+    "What are you studying?",
+    "What is CODEAN?",
+    "What is Resona?",
+    "What's your tech stack?",
+    "What do you do outside of coding?",
+    "What are your long-term goals?",
+    "What are you working on right now?",
+    "How does CODEAN work?",
+    "What do you do in Resona?",
+    "What laptop and setup do you use?",
 )
 PROJECTS = (
     "CODEAN",
@@ -35,7 +47,6 @@ _FILE_TOPICS = {
     "codean": "CODEAN, my final year project",
     "other_projects": "my other projects",
     "how_i_work": "my setup and how I work",
-    "faq": "common questions",
     "opinions": "my opinions",
 }
 _NOTES_TOPIC = "how I think about retrieval, security and backend engineering"
@@ -114,9 +125,6 @@ def format_topic_list(topics: Iterable[str]) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def topic_examples(topics: Iterable[str] = FALLBACK_TOPICS) -> list[list[str]]:
-    """Create Gradio example-chip inputs from up to three curated topics."""
-    available = tuple(dict.fromkeys(topic.strip() for topic in topics if topic.strip()))
-    if not available:
-        available = FALLBACK_TOPICS
-    return [[f"What do the notes say about {topic}?"] for topic in available[:3]]
+def topic_examples() -> list[list[str]]:
+    """Return exact natural visitor questions for Gradio example chips."""
+    return [[question] for question in CHIP_QUESTIONS]

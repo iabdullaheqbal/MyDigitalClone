@@ -47,7 +47,7 @@ def build_ui(service: CloneService, reranker_available: bool = False) -> gr.Bloc
             )
             send = gr.Button("Send", variant="primary", scale=1)
             clear = gr.Button("Clear conversation", scale=1)
-        gr.Examples(examples=topic_examples(service.topics), inputs=message)
+        gr.Examples(examples=topic_examples(), inputs=message)
         evidence_badge = gr.Markdown(elem_classes=["not-found-badge"])
         evidence = gr.JSON(label="Retrieved evidence and diagnostics", value={})
 

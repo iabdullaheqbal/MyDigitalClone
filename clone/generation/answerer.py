@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, replace
 
 from clone.generation.guard import EvidenceLevel
@@ -18,7 +19,7 @@ from clone.generation.prompts import answer_messages
 from clone.generation.responses import render_response, system_status_text
 from clone.generation.topics import FALLBACK_TOPICS, PROJECTS
 from clone.guardrails.claims import aggregate_subject, is_aggregate_claim
-from clone.guardrails.output_checks import check_output, repair_grounded_answer
+from clone.guardrails.output_checks import check_output, redact_pii, repair_grounded_answer
 from clone.guardrails.privacy import redact_names
 from clone.persona import PERSONA_NAME
 from clone.types import AnswerReason, RetrievalHit, Turn
@@ -69,7 +70,11 @@ class Answerer:
         ]
         if self.llm is None:
             return self._fallback(
-                question, "Answer generation is not configured", AnswerReason.NO_KEY
+                question,
+                "Answer generation is not configured",
+                AnswerReason.NO_KEY,
+                hits=hits,
+                evidence_level=evidence_level,
             )
 
         notes = "\n\n".join(hit.chunk.text for hit in hits)
@@ -93,6 +98,8 @@ class Answerer:
                 question,
                 "The answer service is temporarily rate-limited",
                 AnswerReason.RATE_LIMITED,
+                hits=hits,
+                evidence_level=evidence_level,
                 retry_after_seconds=error.retry_after_seconds,
             )
         except GroqTimeoutError:
@@ -100,42 +107,63 @@ class Answerer:
                 question,
                 "The answer service timed out",
                 AnswerReason.TIMEOUT,
+                hits=hits,
+                evidence_level=evidence_level,
             )
         except GroqEmptyOutputError:
             return self._fallback(
                 question,
                 "The answer service returned an empty reply",
                 AnswerReason.EMPTY_LLM_OUTPUT,
+                hits=hits,
+                evidence_level=evidence_level,
             )
         except GroqRequestError:
             return self._fallback(
                 question,
                 "The answer service is temporarily unavailable",
                 AnswerReason.LLM_HTTP_ERROR,
+                hits=hits,
+                evidence_level=evidence_level,
             )
         except GroqError:
             return self._fallback(
                 question,
                 "The answer service is temporarily unavailable",
                 AnswerReason.LLM_HTTP_ERROR,
+                hits=hits,
+                evidence_level=evidence_level,
             )
 
+        if not answer:
+            return self._fallback(
+                question,
+                "The answer service returned an empty reply",
+                AnswerReason.EMPTY_LLM_OUTPUT,
+                hits=hits,
+                evidence_level=evidence_level,
+            )
+
+        persona_facts = f"AI clone {PERSONA_NAME} {' '.join(PROJECTS)}"
         checked = check_output(
             answer,
             notes,
-            persona_facts=f"AI clone {PERSONA_NAME} {' '.join(PROJECTS)}",
+            persona_facts=persona_facts,
             topics=self.topics,
             third_party_names=third_party_names,
+            user_message=question,
         )
         if checked.acceptable:
             return GenerationResult(checked.text, True, None)
 
+        logger.info("groundedness_check_failed flags=%s", checked.flags)
         repaired = repair_grounded_answer(
             answer,
             notes,
-            persona_facts=f"AI clone {PERSONA_NAME} {' '.join(PROJECTS)}",
+            persona_facts=persona_facts,
             topics=self.topics,
             third_party_names=third_party_names,
+            user_message=question,
         )
         if repaired.acceptable:
             logger.info("Answer repaired: reason=%s count=1", AnswerReason.GROUNDEDNESS_FAILED)
@@ -163,8 +191,24 @@ class Answerer:
         *,
         aggregate_claim: bool = False,
         retry_after_seconds: float | None = None,
+        hits: list[RetrievalHit] | None = None,
+        evidence_level: EvidenceLevel = "none",
     ) -> GenerationResult:
-        if aggregate_claim:
+        extractive_reasons = {
+            AnswerReason.NO_KEY,
+            AnswerReason.RATE_LIMITED,
+            AnswerReason.EMPTY_LLM_OUTPUT,
+            AnswerReason.LLM_HTTP_ERROR,
+            AnswerReason.TIMEOUT,
+        }
+        if evidence_level == "strong" and hits and reason_code in extractive_reasons:
+            answer = _extractive_fallback(
+                question,
+                hits,
+                reason_code,
+                retry_after_seconds=retry_after_seconds,
+            )
+        elif aggregate_claim:
             answer = render_response(
                 "aggregate_hedge",
                 question,
@@ -193,3 +237,89 @@ class Answerer:
             reason_code,
             retry_after_seconds,
         )
+
+
+_EXTRACTIVE_STOP_WORDS = {
+    "about",
+    "and",
+    "are",
+    "can",
+    "do",
+    "for",
+    "how",
+    "i",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "the",
+    "to",
+    "what",
+    "you",
+    "your",
+}
+
+
+def _extractive_fallback(
+    question: str,
+    hits: list[RetrievalHit],
+    reason: AnswerReason,
+    *,
+    retry_after_seconds: float | None = None,
+) -> str:
+    """Return up to two grounded, sentence-bounded excerpts from strong hits."""
+    prefixes = {
+        AnswerReason.NO_KEY: "My language model isn't connected, but here's what I can share:",
+        AnswerReason.EMPTY_LLM_OUTPUT: (
+            "My language model returned an empty reply, but here's what I can share:"
+        ),
+        AnswerReason.LLM_HTTP_ERROR: (
+            "My language model had a temporary problem, but here's what I can share:"
+        ),
+        AnswerReason.TIMEOUT: (
+            "My language model timed out, but here's what I can share:"
+        ),
+    }
+    if reason is AnswerReason.RATE_LIMITED:
+        seconds = max(1, round(retry_after_seconds or 25))
+        prefix = (
+            "My language model is busy right now; "
+            f"please try again in about {seconds} seconds. "
+            "Meanwhile, here's what my notes say:"
+        )
+    else:
+        prefix = prefixes[reason]
+    query_terms = set(re.findall(r"[a-z0-9]+", question.casefold())) - _EXTRACTIVE_STOP_WORDS
+    candidates: list[tuple[int, int, int, str, str]] = []
+    for hit_index, hit in enumerate(hits):
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", hit.chunk.text.strip())
+        for sentence_index, sentence in enumerate(sentences):
+            clean_sentence = sentence.strip()
+            word_count = len(clean_sentence.split())
+            if not clean_sentence or word_count > 120:
+                continue
+            sentence_terms = set(re.findall(r"[a-z0-9]+", clean_sentence.casefold()))
+            candidates.append(
+                (
+                    len(query_terms & sentence_terms),
+                    -hit_index,
+                    -sentence_index,
+                    hit.chunk.source,
+                    clean_sentence,
+                )
+            )
+    selected: list[tuple[str, str]] = []
+    words_used = 0
+    for _, _, _, source, sentence in sorted(candidates, reverse=True):
+        sentence_words = len(sentence.split())
+        if words_used + sentence_words > 120:
+            continue
+        selected.append((source, redact_pii(sentence)))
+        words_used += sentence_words
+        if len(selected) == 2:
+            break
+    if not selected:
+        return "I couldn't extract a short passage safely, so I won't guess."
+    excerpts = "\n\n".join(f"From {source}: {sentence}" for source, sentence in selected)
+    return f"{prefix}\n\n{excerpts}"

@@ -74,6 +74,132 @@ def test_service_rewrites_follow_up_retrieves_and_records_supported_answer() -> 
     assert all(value >= 0 for value in result.latency_ms.values())
 
 
+@pytest.mark.parametrize(
+    ("llm_response", "expected_reason"),
+    [
+        (
+            "I am a final-year Computer Science student at UMT. "
+            "I focus on deep learning and cybersecurity.",
+            AnswerReason.OK,
+        ),
+        ("", AnswerReason.EMPTY_LLM_OUTPUT),
+        (GroqRateLimitError(19), AnswerReason.RATE_LIMITED),
+    ],
+)
+def test_screenshot_background_chip_prompt_normalizes_and_falls_back_to_excerpt(
+    llm_response: str | Exception,
+    expected_reason: AnswerReason,
+) -> None:
+    passage = (
+        "I am a final-year Computer Science student at UMT. "
+        "I focus on deep learning and cybersecurity."
+    )
+    hit = RetrievalHit(
+        Chunk("bio#0", "bio.md", passage, 0),
+        1.0,
+        1.0,
+        0.8,
+        1,
+        1,
+    )
+    llm = FakeLLM([llm_response])
+    session = ChatSession()
+    result = CloneService(FakeRetriever([hit]), llm).answer(
+        "What do the notes say about my background and skills?",
+        session,
+    )
+
+    assert result.standalone_query == "your background and skills?"
+    assert session.history()[0].content == (
+        "What do the notes say about my background and skills?"
+    )
+    assert result.reason is expected_reason
+    assert "I can't generate an answer right now" not in result.answer
+    if expected_reason is AnswerReason.OK:
+        assert result.used_llm
+        assert result.answer == passage
+    else:
+        assert not result.used_llm
+        assert "From bio.md:" in result.answer
+        assert "Computer Science student at UMT" in result.answer
+        excerpts = [
+            section.partition(": ")[2]
+            for section in result.answer.split("\n\n")
+            if section.startswith("From ")
+        ]
+        assert 1 <= len(excerpts) <= 2
+        assert sum(len(excerpt.split()) for excerpt in excerpts) <= 120
+
+
+@pytest.mark.parametrize(
+    "llm_response",
+    [
+        "I can answer about the background.",
+        "",
+        GroqRateLimitError(19),
+    ],
+)
+def test_screenshot_common_questions_prompt_lists_faq_without_llm(
+    llm_response: str | Exception,
+) -> None:
+    llm = FakeLLM([llm_response])
+    retriever = FakeRetriever()
+    result = CloneService(retriever, llm).answer(
+        "What do the notes say about common questions?",
+        ChatSession(),
+    )
+
+    assert result.intent == "list_faq"
+    assert result.reason is AnswerReason.GUARD_TEMPLATE
+    assert "What is CODEAN?" in result.answer
+    assert "What's your tech stack?" in result.answer
+    assert not retriever.calls
+    assert not llm.calls
+
+
+@pytest.mark.parametrize(
+    ("question", "source", "passage"),
+    [
+        (
+            "What are you studying?",
+            "bio.md",
+            "I study Computer Science at UMT, focusing on deep learning and cybersecurity.",
+        ),
+        (
+            "Tell me about your background and skills",
+            "cv_skills.md",
+            "I work with Python, FastAPI, PostgreSQL, PyTorch and machine learning.",
+        ),
+        (
+            "What's your tech stack?",
+            "faq.md",
+            "My stack includes FastAPI, PostgreSQL with pgvector, Redis, Celery, "
+            "Nginx and Next.js.",
+        ),
+    ],
+)
+def test_background_and_skills_questions_accept_grounded_chunk_text(
+    question: str,
+    source: str,
+    passage: str,
+) -> None:
+    hit = RetrievalHit(
+        Chunk(f"{source}#0", source, passage, 0),
+        1.0,
+        1.0,
+        0.8,
+        1,
+        1,
+    )
+    llm = FakeLLM([passage])
+
+    result = CloneService(FakeRetriever([hit]), llm).answer(question, ChatSession())
+
+    assert result.used_llm
+    assert result.reason is AnswerReason.OK
+    assert result.answer == passage
+
+
 def test_none_evidence_returns_personal_template_without_generation_call() -> None:
     chunk = Chunk("faq#0", "faq.md", "A different topic.", 0)
     retriever = FakeRetriever([RetrievalHit(chunk, 0.0, 0.0, 0.1, None, 1)])
@@ -103,7 +229,7 @@ def test_none_evidence_follow_up_skips_query_rewrite_and_generation() -> None:
     assert not llm.calls
     assert result.evidence_level == "none"
     assert len(retriever.calls) == 1
-    assert retriever.calls[0][0] == "what is my favorite color?"
+    assert retriever.calls[0][0] == "what is your favorite color?"
 
 
 def test_special_intents_bypass_rewrite_and_retrieval() -> None:

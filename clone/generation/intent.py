@@ -6,6 +6,8 @@ import re
 from enum import StrEnum
 from unicodedata import category as unicode_category
 
+from clone.generation.query_normalizer import normalize_visitor_query
+
 
 class Intent(StrEnum):
     """Supported behavior-layer message categories."""
@@ -16,6 +18,7 @@ class Intent(StrEnum):
     IDENTITY = "identity"
     STATUS = "status"
     PERSONAL_LOCATION = "personal_location"
+    LIST_FAQ = "list_faq"
     ACKNOWLEDGEMENT = "acknowledgement"
     SENSITIVE_REQUEST = "sensitive_request"
     INJECTION = "injection"
@@ -48,6 +51,11 @@ _PERSONAL_LOCATION = re.compile(
     r"|\bwhere\s+do\s+you\s+come\s+from\b",
     re.IGNORECASE,
 )
+_LIST_FAQ = re.compile(
+    r"^(?:faq|help|common\s+questions?|what\s+questions?\s+can\s+i\s+ask|"
+    r"what\s+do\s+people\s+usually\s+ask(?:\s+you)?)[?.!]*$",
+    re.IGNORECASE,
+)
 _SENSITIVE = re.compile(
     r"\b(?:phone|mobile|cell)\s*(?:number|no\.?|#)\b"
     r"|\b(?:home\s+)?address\b|\bhome\s+location\b"
@@ -66,7 +74,7 @@ _ABUSE = re.compile(
     re.IGNORECASE,
 )
 _IDENTITY = re.compile(
-    r"\bwho\s+are\s+you\b|\bwhat\s+are\s+you\b"
+    r"\bwho\s+are\s+you\b|\bwhat\s+are\s+you(?:\s+(?:exactly|really))?[?.!]*$"
     r"|\bare\s+you\s+(?:a\s+)?(?:real(?:\s+person)?|human|(?:an?\s+)?ai)\b"
     r"|\bare\s+you\s+an?\s+artificial\s+intelligence\b",
     re.IGNORECASE,
@@ -119,7 +127,7 @@ def _is_gibberish(message: str) -> bool:
 
 def route_intent(message: str) -> Intent:
     """Classify high-confidence intents; leave all other messages evidence-led."""
-    normalized = message.strip()
+    normalized = normalize_visitor_query(message)
     if _INJECTION.search(normalized):
         return Intent.INJECTION
     if _SENSITIVE.search(normalized):
@@ -132,6 +140,8 @@ def route_intent(message: str) -> Intent:
         return Intent.STATUS
     if _PERSONAL_LOCATION.search(normalized):
         return Intent.PERSONAL_LOCATION
+    if _LIST_FAQ.fullmatch(normalized):
+        return Intent.LIST_FAQ
     if _GREETINGS.fullmatch(normalized):
         return Intent.GREETING
     if _THANKS.search(normalized):

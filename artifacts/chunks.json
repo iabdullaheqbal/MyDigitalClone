@@ -5,6 +5,22 @@
     "chunk_words": 250,
     "overlap_words": 40
   },
+  "topics": [
+    "my background and skills",
+    "CODEAN, my final year project",
+    "my setup and how I work",
+    "how I think about retrieval, security and backend engineering",
+    "my opinions",
+    "my other projects",
+    "Resona"
+  ],
+  "faq_questions": [
+    "Who are you?",
+    "What are you studying and what do you focus on?",
+    "What are you working on right now?",
+    "What is CODEAN?",
+    "How does CODEAN work in simple terms?"
+  ],
   "chunks": [
     {
       "id": "bio#0",
@@ -216,15 +232,5 @@
       "text": "semantic similarity search. Redis and Celery handle background jobs such as processing papers, and Nginx sits in front. The database schema has 30 tables grouped into 11 modules. Retrieval-augmented generation powers the features that need answers grounded in real papers.\n\n## Decisions I made\nFor version one I cut the AI Novelty Checker, because I wasn't sure it was a useful feature, and the Citation Generator, because it was out of scope for the time I had. I'm not deploying Resona publicly for now, so it runs locally. I'm also not open-sourcing the product. For payments, I looked at Paddle and Dodo Payments because Stripe doesn't support Pakistani merchant accounts.\n\n## Why I'm building it\nResona is my attempt to turn research skills into a real product. It's where I practice database design, retrieval, infrastructure and product thinking together.",
       "index": 34
     }
-  ],
-  "topics": [
-    "my background and skills",
-    "CODEAN, my final year project",
-    "common questions",
-    "my setup and how I work",
-    "how I think about retrieval, security and backend engineering",
-    "my opinions",
-    "my other projects",
-    "Resona"
   ]
 }

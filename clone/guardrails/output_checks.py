@@ -73,6 +73,68 @@ _COMMON_CAPITALIZED = {
     "While",
     "You",
 }
+_ENTITY_STOP_WORDS = {
+    "about",
+    "after",
+    "all",
+    "also",
+    "and",
+    "any",
+    "are",
+    "because",
+    "but",
+    "can",
+    "could",
+    "do",
+    "for",
+    "from",
+    "has",
+    "have",
+    "here",
+    "how",
+    "into",
+    "is",
+    "it",
+    "its",
+    "like",
+    "may",
+    "more",
+    "my",
+    "not",
+    "of",
+    "on",
+    "or",
+    "our",
+    "out",
+    "over",
+    "please",
+    "so",
+    "some",
+    "than",
+    "that",
+    "the",
+    "their",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "through",
+    "to",
+    "under",
+    "was",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "will",
+    "with",
+    "you",
+    "your",
+}
 _PROMPT_LEAK_MARKERS = (
     "rules by situation",
     "owner to approve",
@@ -110,6 +172,7 @@ def check_output(
     topics: Iterable[str] = (),
     third_party_names: Iterable[str] = (),
     require_first_person: bool = True,
+    user_message: str = "",
 ) -> OutputCheck:
     """Redact PII and reject ungrounded or prompt-leaking model responses."""
     text = answer.strip()
@@ -134,7 +197,8 @@ def check_output(
     if require_first_person and not _FIRST_PERSON.search(text):
         flags.append("missing_first_person")
 
-    trusted_text = f"{notes}\n{persona_facts}\n{' '.join(topics)}"
+    topic_text = " ".join(topics)
+    trusted_text = f"{notes}\n{persona_facts}\n{topic_text}"
     trusted = trusted_text.casefold()
     trusted_notes = notes.casefold()
     trusted_numbers = set(_NUMBER.findall(trusted))
@@ -160,10 +224,16 @@ def check_output(
     if unsupported_quantifiers:
         flags.append("ungrounded_quantifier")
 
+    exempt_entities = f"{persona_facts}\n{topic_text}\n{user_message}".casefold()
     unsupported_terms = []
     for match in _CAPITALIZED.finditer(text):
         term = match.group()
-        if term in _COMMON_CAPITALIZED:
+        if (
+            term in _COMMON_CAPITALIZED
+            or term.casefold() in _ENTITY_STOP_WORDS
+            or _is_sentence_initial(text, match.start())
+            or re.search(rf"\b{re.escape(term.casefold())}\b", exempt_entities)
+        ):
             continue
         if not re.search(rf"\b{re.escape(term.casefold())}\b", trusted):
             unsupported_terms.append(term)
@@ -180,6 +250,7 @@ def repair_grounded_answer(
     persona_facts: str = "AI clone",
     topics: Iterable[str] = (),
     third_party_names: Iterable[str] = (),
+    user_message: str = "",
 ) -> OutputCheck:
     """Keep only grounded sentences and return the resulting safe text."""
     sentences = re.split(r"(?<=[.!?])\s+|\n+", answer.strip())
@@ -203,6 +274,7 @@ def repair_grounded_answer(
             persona_facts=persona_facts,
             topics=topics,
             third_party_names=third_party_names,
+            user_message=user_message,
             require_first_person=False,
         )
         flags.extend(checked.flags)
@@ -218,6 +290,7 @@ def repair_grounded_answer(
         persona_facts=persona_facts,
         topics=topics,
         third_party_names=third_party_names,
+        user_message=user_message,
     )
     remaining = set(final.flags) - safe_redactions
     return OutputCheck(
@@ -225,3 +298,10 @@ def repair_grounded_answer(
         tuple(dict.fromkeys((*flags, *final.flags))),
         not remaining,
     )
+
+
+def _is_sentence_initial(text: str, offset: int) -> bool:
+    """Ignore capitalized tokens at sentence or markdown-block starts."""
+    prefix = text[:offset].rstrip()
+    prefix = re.sub(r"[*_`#>~-]+$", "", prefix).rstrip()
+    return not prefix or prefix[-1] in ".!?\n"

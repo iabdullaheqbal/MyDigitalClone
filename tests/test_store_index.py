@@ -4,9 +4,11 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from clone.generation.faq import extract_faq_questions
 from clone.generation.topics import FALLBACK_TOPICS, topics_for_sources
 from clone.indexing.builder import build_index
-from clone.indexing.store import fingerprint, load_index, load_topics
+from clone.indexing.store import fingerprint, load_faq_questions, load_index, load_topics
+from clone.ingestion.loader import Document
 
 
 class FakeEncoder:
@@ -72,7 +74,6 @@ def test_topic_labels_are_curated_and_deduplicated_by_source() -> None:
         "my other projects",
         "how I think about retrieval, security and backend engineering",
         "my setup and how I work",
-        "common questions",
     ]
 
 
@@ -87,6 +88,30 @@ def test_fingerprint_changes_with_data_model_and_chunk_configuration(tmp_path: P
     assert fingerprint(data_dir, "model-a", 200, 40) != original
     source.write_text("changed", encoding="utf-8")
     assert fingerprint(data_dir, "model-a", 250, 40) != original
+
+
+def test_faq_questions_are_extracted_and_persisted_at_index_time(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "faq.md").write_text(
+        "**Q: What are you studying?**\nA: Computer Science.\n"
+        "**Q: What is CODEAN?**\nA: A project.\n"
+        "**Q: What is Resona?**\nA: A product.\n",
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "artifacts"
+    expected = (
+        "What are you studying?",
+        "What is CODEAN?",
+        "What is Resona?",
+    )
+
+    assert extract_faq_questions([Document("faq.md", (data_dir / "faq.md").read_text())]) == (
+        *expected,
+    )
+    build_index(data_dir, FakeEncoder(), out_dir, chunk_words=30, overlap_words=2)
+
+    assert load_faq_questions(out_dir) == expected
 
 
 def test_load_rejects_stale_and_shape_mismatched_index(tmp_path: Path) -> None:

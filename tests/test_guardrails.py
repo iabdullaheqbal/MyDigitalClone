@@ -23,7 +23,7 @@ def test_output_checks_redact_contact_and_credential_patterns() -> None:
 
 
 def test_output_checks_reject_ungrounded_names_numbers_and_prompt_leaks() -> None:
-    ungrounded = check_output("Python launched in 2024.", notes="I study retrieval.")
+    ungrounded = check_output("I used Python in 2024.", notes="I study retrieval.")
     assert not ungrounded.acceptable
     assert "ungrounded_number" in ungrounded.flags
     assert "ungrounded_capitalized_term" in ungrounded.flags

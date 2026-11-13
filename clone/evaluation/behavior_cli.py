@@ -14,7 +14,7 @@ from clone.evaluation.behavior import (
 )
 from clone.evaluation.runner import build_retriever
 from clone.generation.llm_client import GroqClient
-from clone.indexing.store import load_topics
+from clone.indexing.store import load_faq_questions, load_topics
 from clone.service import CloneService
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,6 +51,7 @@ def main() -> None:
         candidates=settings.candidates,
         history_turns=settings.history_turns,
         topics=load_topics(settings.artifacts_dir),
+        faq_questions=load_faq_questions(settings.artifacts_dir),
     )
     outcomes = evaluate_behavior_cases(cases, service)
     print("Draft behavior evaluation; needs human review and is not validated.")

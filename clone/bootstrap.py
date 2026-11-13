@@ -6,7 +6,7 @@ import gradio as gr
 
 from clone.config import Settings
 from clone.generation.llm_client import GroqClient
-from clone.indexing.store import fingerprint, load_index, load_topics
+from clone.indexing.store import fingerprint, load_faq_questions, load_index, load_topics
 from clone.retrieval.bm25 import BM25Retriever
 from clone.retrieval.dense import DenseRetriever, SentenceTransformerEncoder
 from clone.retrieval.hybrid import HybridRetriever
@@ -57,6 +57,7 @@ def create_app() -> gr.Blocks:
         candidates=settings.candidates,
         history_turns=settings.history_turns,
         topics=load_topics(settings.artifacts_dir),
+        faq_questions=load_faq_questions(settings.artifacts_dir),
         show_supervisor_name=settings.show_supervisor_name,
     )
     return build_ui(service, reranker_available=True)
