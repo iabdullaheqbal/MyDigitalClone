@@ -1,18 +1,53 @@
+import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SPACE_PROVIDED = {
+    "fastapi",
+    "gradio",
+    "gradio-client",
+    "huggingface-hub",
+    "pydantic",
+    "pydantic-core",
+    "spaces",
+    "starlette",
+    "torch",
+    "uvicorn",
+    "websockets",
+}
 
 
-def test_space_requirements_use_space_torch_without_hashes() -> None:
+def _normalize_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def test_space_requirements_pin_only_project_direct_dependencies() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    dependencies = {
+        _normalize_name(re.match(r"([A-Za-z0-9._-]+)", spec).group(1))
+        for spec in project["project"]["dependencies"]
+    }
+    expected_names = dependencies - SPACE_PROVIDED
+    locked_versions = {
+        _normalize_name(package["name"]): package["version"]
+        for package in lock["package"]
+        if _normalize_name(package["name"]) in expected_names
+    }
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
-    requirement_lines = requirements.splitlines()
+    actual_versions = {}
+    for line in requirements.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r"\s*([A-Za-z0-9._-]+)==([^\s;]+)\s*", line)
+        assert match, f"Expected a direct dependency pin, got: {line}"
+        actual_versions[_normalize_name(match.group(1))] = match.group(2)
 
-    assert "--hash=" not in requirements
-    assert not any(line.startswith("torch") for line in requirement_lines)
-    assert not any(
-        line.startswith(("cuda-", "nvidia-", "triton=="))
-        for line in requirement_lines
-    )
+    assert actual_versions == {
+        name: locked_versions[name] for name in expected_names
+    }
+    assert not (actual_versions.keys() & SPACE_PROVIDED)
 
 
 def test_space_uses_gradio_sdk_with_python_312() -> None:

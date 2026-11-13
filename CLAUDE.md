@@ -1,6 +1,10 @@
 # Project guidance
 
 - Keep the project on Python 3.11 and manage dependencies with `uv`.
+- Keep `requirements.txt` limited to direct runtime dependencies not supplied
+  by Hugging Face Spaces, pinned to versions in `uv.lock`; do not full-export
+  transitive packages into it. After changing dependencies, run `uv lock`,
+  update only those direct pins from `uv.lock`, and verify the Space install.
 - Keep orchestration in `clone/service.py`; UI handlers should delegate to the
   service rather than implement retrieval or generation logic.
 - Do not edit owner-provided notes in `data/` or generate personal facts unless

@@ -59,8 +59,13 @@ model weights may need to download the first time they are used.
 
 ## Hugging Face Spaces
 
-The Space uses the Gradio SDK with Python 3.11. Its build image supplies PyTorch;
-`requirements.txt` installs the other app dependencies.
+The Space uses the Gradio SDK with Python 3.12.12. Its build image supplies
+Gradio, PyTorch, and their dependencies. `requirements.txt` lists only the
+remaining direct runtime dependencies, pinned to their versions in `uv.lock`.
+After changing `pyproject.toml`, run `uv lock`, copy the resolved versions for
+the app's non-Space-provided direct dependencies from `uv.lock` into
+`requirements.txt`, and verify with the Space install command. Do not replace
+it with a full `uv export`, which would pin packages the Space manages.
 Add `GROQ_API_KEY` as a Space secret (not as a repository file). `GROQ_MODEL`
 is optional; the default is `openai/gpt-oss-20b`. The app can still start
 without a key and will return a grounded passage fallback instead of calling
