@@ -1,8 +1,11 @@
+import sys
+from types import ModuleType
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from clone.retrieval.dense import DenseRetriever
+from clone.retrieval.dense import DenseRetriever, SentenceTransformerEncoder
 from clone.types import Chunk
 
 
@@ -52,3 +55,20 @@ def test_dense_validates_embedding_and_query_shapes() -> None:
     )
     with pytest.raises(ValueError, match="Query embedding shape"):
         retriever.search("query", 1)
+
+
+def test_sentence_transformer_encoder_forces_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: dict[str, object] = {}
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name: str, *, device: str) -> None:
+            received["model_name"] = model_name
+            received["device"] = device
+
+    fake_module = ModuleType("sentence_transformers")
+    fake_module.SentenceTransformer = FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
+
+    SentenceTransformerEncoder("test-model")._load_model()
+
+    assert received == {"model_name": "test-model", "device": "cpu"}

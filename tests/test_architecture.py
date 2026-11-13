@@ -41,6 +41,9 @@ def test_app_is_a_small_entrypoint() -> None:
 
     assert len(source.splitlines()) <= 40
     assert not any(term in source.lower() for term in ("chunk_text", "bm25", "prompt"))
+    assert "from clone import hf_runtime" in source
+    assert "demo = create_app()" in source
+    assert 'if __name__ == "__main__":' in source
 
 
 def test_required_architecture_modules_exist() -> None:
