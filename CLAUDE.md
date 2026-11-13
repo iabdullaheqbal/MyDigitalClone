@@ -8,6 +8,8 @@
   run `uv lock`, update those direct pins, and verify the Space install.
 - Keep orchestration in `clone/service.py`; UI handlers should delegate to the
   service rather than implement retrieval or generation logic.
+- Keep behavior routing, evidence grading, response templates, and guardrails
+  in their dedicated `clone/` modules; log only intent categories and flags.
 - Do not edit owner-provided notes in `data/` or generate personal facts unless
   the owner explicitly approves the change.
 - Never commit, print, or log API keys. Use environment variables locally and

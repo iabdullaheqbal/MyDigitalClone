@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from clone.guardrails.output_checks import redact_pii
 from clone.types import AnswerResult
 
 
 def format_evidence(result: AnswerResult) -> dict[str, object]:
     """Return display-safe retrieval details and per-stage timings."""
     return {
+        "intent": result.intent,
+        "evidence_level": result.evidence_level,
+        "guardrail_flags": list(result.guardrail_flags),
+        "not_found_in_notes_badge": ("Not found in notes" if result.not_found_in_notes else ""),
         "retrieval_query": result.standalone_query,
         "retrieval_mode": result.mode.value,
         "declined": result.declined,
@@ -18,7 +23,7 @@ def format_evidence(result: AnswerResult) -> dict[str, object]:
             {
                 "source": hit.chunk.source,
                 "chunk_id": hit.chunk.id,
-                "text": hit.chunk.text,
+                "text": redact_pii(hit.chunk.text),
                 "score": hit.score,
                 "bm25_score": hit.bm25_score,
                 "dense_score": hit.dense_score,

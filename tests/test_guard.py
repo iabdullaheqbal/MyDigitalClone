@@ -1,4 +1,4 @@
-from clone.generation.guard import should_decline
+from clone.generation.guard import assess_evidence
 from clone.types import Chunk, RetrievalHit
 
 
@@ -7,8 +7,18 @@ def _hit(bm25_score: float, dense_score: float) -> RetrievalHit:
     return RetrievalHit(chunk, 0.0, bm25_score, dense_score, None, None)
 
 
-def test_guard_declines_missing_or_irrelevant_evidence() -> None:
-    assert should_decline([], dense_min=0.2)
-    assert should_decline([_hit(0, 0.19)], dense_min=0.2)
-    assert not should_decline([_hit(0, 0.2)], dense_min=0.2)
-    assert not should_decline([_hit(0.01, -0.5)], dense_min=0.2)
+def test_evidence_grading_combines_cosine_thresholds_and_bm25_matches() -> None:
+    assert assess_evidence([]) == "none"
+    assert assess_evidence([_hit(0, 0.19)]) == "none"
+    assert assess_evidence([_hit(0, 0.20)]) == "weak"
+    assert assess_evidence([_hit(0.01, -0.5)]) == "weak"
+    assert assess_evidence([_hit(0, 0.45)]) == "strong"
+
+
+def test_evidence_thresholds_must_be_ordered() -> None:
+    try:
+        assess_evidence([_hit(0, 0.2)], strong_cosine=0.1, weak_cosine=0.2)
+    except ValueError as error:
+        assert "thresholds" in str(error)
+    else:
+        raise AssertionError("Expected invalid evidence thresholds to fail")

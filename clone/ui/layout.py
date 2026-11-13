@@ -7,6 +7,7 @@ from functools import partial
 import gradio as gr
 
 from clone.chat.session import ChatSession
+from clone.generation.topics import topic_examples
 from clone.persona import AI_CLONE_BANNER, PERSONA_DESCRIPTION, PERSONA_NAME
 from clone.service import CloneService
 from clone.types import RetrievalMode
@@ -17,8 +18,7 @@ def build_ui(service: CloneService, reranker_available: bool = False) -> gr.Bloc
     """Build the queued chat UI with browser-session state and evidence."""
     with gr.Blocks(title=f"{PERSONA_NAME}'s Digital Clone") as demo:
         gr.Markdown(
-            f"# {PERSONA_NAME}'s Digital Clone\n"
-            f"**{AI_CLONE_BANNER}** {PERSONA_DESCRIPTION}"
+            f"# {PERSONA_NAME}'s Digital Clone\n**{AI_CLONE_BANNER}** {PERSONA_DESCRIPTION}"
         )
         session_state = gr.State(ChatSession(), time_to_live=3600)
         with gr.Row():
@@ -47,16 +47,18 @@ def build_ui(service: CloneService, reranker_available: bool = False) -> gr.Bloc
             )
             send = gr.Button("Send", variant="primary", scale=1)
             clear = gr.Button("Clear conversation", scale=1)
+        gr.Examples(examples=topic_examples(service.topics), inputs=message)
+        evidence_badge = gr.Markdown(elem_classes=["not-found-badge"])
         evidence = gr.JSON(label="Retrieved evidence and diagnostics", value={})
 
         submit = partial(handle_message, service=service)
         inputs = [message, chatbot, session_state, mode, top_k, rerank]
-        outputs = [message, chatbot, session_state, evidence]
+        outputs = [message, chatbot, session_state, evidence, evidence_badge]
         send.click(submit, inputs=inputs, outputs=outputs)
         message.submit(submit, inputs=inputs, outputs=outputs)
         clear.click(
             clear_conversation,
             inputs=[],
-            outputs=[chatbot, session_state, evidence],
+            outputs=[chatbot, session_state, evidence, evidence_badge],
         )
     return demo

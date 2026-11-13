@@ -17,7 +17,7 @@ def handle_message(
     use_reranker: bool,
     *,
     service: CloneService,
-) -> tuple[str, list[dict[str, str]], ChatSession, dict[str, object]]:
+) -> tuple[str, list[dict[str, str]], ChatSession, dict[str, object], str]:
     """Process a user message and update only the caller's chat state."""
     if not isinstance(session, ChatSession):
         raise TypeError("The chat session state is invalid")
@@ -36,9 +36,10 @@ def handle_message(
             {"role": "assistant", "content": result.answer},
         )
     )
-    return "", history, session, format_evidence(result)
+    badge = "**Not found in notes**" if result.not_found_in_notes else ""
+    return "", history, session, format_evidence(result), badge
 
 
-def clear_conversation() -> tuple[list[dict[str, str]], ChatSession, dict[str, object]]:
+def clear_conversation() -> tuple[list[dict[str, str]], ChatSession, dict[str, object], str]:
     """Return fresh UI and session state when the user clears the chat."""
-    return [], ChatSession(), {}
+    return [], ChatSession(), {}, ""

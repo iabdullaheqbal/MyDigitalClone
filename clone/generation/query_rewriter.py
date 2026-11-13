@@ -18,7 +18,7 @@ def rewrite(history: list[Turn], question: str, llm: ChatClient) -> str:
     try:
         result = llm.chat(
             rewrite_messages(history[-6:], question),
-            max_tokens=80,
+            max_tokens=1024,
             temperature=0,
         ).strip()
     except GroqError as error:

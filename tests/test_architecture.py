@@ -19,10 +19,15 @@ REQUIRED_MODULES = (
     "retrieval/hybrid.py",
     "generation/prompts.py",
     "generation/llm_client.py",
+    "generation/intent.py",
+    "generation/topics.py",
+    "generation/responses.py",
     "generation/query_rewriter.py",
     "generation/guard.py",
     "generation/answerer.py",
     "chat/session.py",
+    "guardrails/input_checks.py",
+    "guardrails/output_checks.py",
     "service.py",
     "ui/layout.py",
     "ui/handlers.py",
@@ -32,6 +37,7 @@ REQUIRED_MODULES = (
     "evaluation/runner.py",
     "evaluation/report.py",
     "evaluation/manual_scoring.py",
+    "evaluation/behavior.py",
 )
 
 

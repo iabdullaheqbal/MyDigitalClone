@@ -70,6 +70,7 @@ def save_index(
     chunk_words: int,
     overlap_words: int,
     data_fingerprint: str,
+    topics: list[str] | None = None,
 ) -> None:
     """Write a normalized NumPy matrix and its matching JSON metadata."""
     if not chunks:
@@ -80,6 +81,7 @@ def save_index(
         "fingerprint": data_fingerprint,
         "model": model,
         "chunk_config": {"chunk_words": chunk_words, "overlap_words": overlap_words},
+        "topics": topics or [],
         "chunks": [
             {"id": chunk.id, "source": chunk.source, "text": chunk.text, "index": chunk.index}
             for chunk in chunks
@@ -125,3 +127,20 @@ def load_index(
     embeddings = np.load(embeddings_path, allow_pickle=False)
     matrix = _validate_embeddings(embeddings, len(chunks), normalize=False)
     return chunks, matrix
+
+
+def load_topics(out_dir: Path) -> tuple[str, ...]:
+    """Load indexed topic headings, falling back for older artifacts."""
+    from clone.generation.topics import FALLBACK_TOPICS
+
+    metadata_path = out_dir / "chunks.json"
+    if not metadata_path.is_file():
+        return FALLBACK_TOPICS
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    raw_topics = metadata.get("topics")
+    if not isinstance(raw_topics, list):
+        return FALLBACK_TOPICS
+    topics = tuple(
+        topic.strip() for topic in raw_topics if isinstance(topic, str) and topic.strip()
+    )
+    return topics or FALLBACK_TOPICS

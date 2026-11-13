@@ -14,6 +14,8 @@ def test_from_env_uses_safe_defaults_without_api_key(monkeypatch: pytest.MonkeyP
     assert settings.groq_model == "openai/gpt-oss-20b"
     assert settings.groq_base_url == "https://api.groq.com/openai/v1"
     assert settings.data_dir == Path(__file__).resolve().parents[1] / "data"
+    assert settings.strong_cosine == 0.45
+    assert settings.weak_cosine == 0.20
 
 
 def test_from_env_rejects_invalid_chunk_size(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -27,3 +29,11 @@ def test_from_env_normalizes_api_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GROQ_BASE_URL", "https://example.test/v1///")
 
     assert Settings.from_env().groq_base_url == "https://example.test/v1"
+
+
+def test_from_env_rejects_reversed_evidence_thresholds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STRONG_COSINE", "0.1")
+    monkeypatch.setenv("WEAK_COSINE", "0.2")
+
+    with pytest.raises(ValueError, match="STRONG_COSINE"):
+        Settings.from_env()

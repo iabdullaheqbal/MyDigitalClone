@@ -8,6 +8,7 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
+from clone.generation.topics import derive_topics
 from clone.indexing.store import fingerprint, save_index
 from clone.ingestion.chunker import chunk_text
 from clone.ingestion.loader import load_documents
@@ -62,5 +63,6 @@ def build_index(
         chunk_words,
         overlap_words,
         data_fingerprint,
+        derive_topics(documents),
     )
     return chunks, embeddings

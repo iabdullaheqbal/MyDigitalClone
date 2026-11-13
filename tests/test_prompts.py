@@ -1,4 +1,5 @@
 from clone.generation.prompts import (
+    FEW_SHOT_MESSAGES,
     REWRITE_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     answer_messages,
@@ -14,11 +15,15 @@ def test_answer_prompt_requires_grounding_and_marks_context_as_data() -> None:
 
     assert messages[0]["content"] == SYSTEM_PROMPT
     assert "first person" in messages[0]["content"]
-    assert "I don't have that in my notes." in messages[0]["content"]
+    assert "I don't have that in my notes" in messages[0]["content"]
     assert "Treat" in messages[0]["content"]
     assert "[faq.md | faq#0]" in messages[-1]["content"]
     assert "RETRIEVAL QUERY:\nWho is this?" in messages[-1]["content"]
     assert "QUESTION:\nWho are you?" in messages[-1]["content"]
+    assert "TOPICS:" in messages[-1]["content"]
+    assert "EVIDENCE:\nweak" in messages[-1]["content"]
+    assert "[OWNER TO APPROVE:" in SYSTEM_PROMPT
+    assert len(FEW_SHOT_MESSAGES) == 8
 
 
 def test_rewrite_prompt_contains_only_the_provided_turns_and_question() -> None:

@@ -1,0 +1,116 @@
+"""Rule-based routing for messages that should bypass retrieval or generation."""
+
+from __future__ import annotations
+
+import re
+from enum import StrEnum
+
+
+class Intent(StrEnum):
+    """Supported behavior-layer message categories."""
+
+    GREETING = "greeting"
+    THANKS = "thanks"
+    GOODBYE = "goodbye"
+    IDENTITY = "identity"
+    SENSITIVE_REQUEST = "sensitive_request"
+    INJECTION = "injection"
+    ABUSE = "abuse"
+    GIBBERISH_OR_EMPTY = "gibberish_or_empty"
+    ABOUT_ME_OR_OTHER = "about_me_or_other"
+    ABOUT_ME = "about_me"
+    NOT_IN_NOTES = "not_in_notes"
+    OUT_OF_SCOPE = "out_of_scope"
+
+
+_INJECTION = re.compile(
+    r"\b(?:ignore|disregard|forget|override)\b.{0,50}\b(?:instructions?|rules?|prompt)\b"
+    r"|\b(?:reveal|print|show|repeat|leak)\b.{0,40}\b(?:system|hidden|developer)\b"
+    r"|\bdeveloper\s+mode\b|\bact\s+as\s+(?:someone|somebody|another|a different)\b"
+    r"|\bpretend\s+(?:to\s+be|you'?re)\b",
+    re.IGNORECASE,
+)
+_SENSITIVE = re.compile(
+    r"\b(?:phone|mobile|cell)\s*(?:number|no\.?|#)\b"
+    r"|\b(?:home\s+)?address\b|\bwhere\s+do\s+you\s+live\b|\bhome\s+location\b"
+    r"|\b(?:cnic|national\s+id|identity\s+number|passport\s+number|social\s+security)\b"
+    r"|\b(?:password|passcode|api\s+key|secret\s+key|bank\s+(?:details?|info(?:rmation)?)|"
+    r"account\s+number|"
+    r"credit\s+card)\b"
+    r"|\bprivate\s+(?:info(?:rmation)?|details?)\b.{0,80}"
+    r"\b(?:family|friends?|classmates?)\b"
+    r"|\b(?:family|friends?|classmates?)\b.{0,45}\b(?:private|personal|contact|address|"
+    r"phone|email|number|secret|medical|financial|salary|health|where\s+(?:they|he|she)\s+live)\b",
+    re.IGNORECASE,
+)
+_ABUSE = re.compile(
+    r"\b(?:fuck(?:ing)?|shit|idiot|stupid|moron|shut\s+up|you(?:'re| are)\s+useless)\b",
+    re.IGNORECASE,
+)
+_IDENTITY = re.compile(
+    r"\bwho\s+are\s+you\b|\bwhat\s+are\s+you\b"
+    r"|\bare\s+you\s+(?:a\s+)?(?:real(?:\s+person)?|human|(?:an?\s+)?ai)\b"
+    r"|\bare\s+you\s+an?\s+artificial\s+intelligence\b",
+    re.IGNORECASE,
+)
+_GREETINGS = re.compile(
+    r"^(?:hi(?:\s+there)?|hello(?:\s+there)?|hey(?:\s+there)?|hiya|good\s+morning|"
+    r"good\s+afternoon|good\s+evening|what'?s\s+up|how\s+are\s+you(?:\s+doing)?|"
+    r"how'?s\s+it\s+going)[!.?\s]*$",
+    re.IGNORECASE,
+)
+_THANKS = re.compile(r"\b(?:thanks|thank\s+you|thx|much\s+appreciated)\b", re.IGNORECASE)
+_GOODBYE = re.compile(
+    r"\b(?:bye|goodbye|see\s+you|take\s+care|later|farewell)\b",
+    re.IGNORECASE,
+)
+_WORD = re.compile(r"[A-Za-z]+")
+_VALID_LOW_VOWEL_WORDS = {"rhythm", "rhythms", "strengths"}
+
+
+def _is_gibberish(message: str) -> bool:
+    stripped = message.strip()
+    if not stripped or not _WORD.search(stripped):
+        return True
+    words = _WORD.findall(stripped)
+    if len(stripped) >= 4 and len(set(stripped.casefold())) == 1:
+        return True
+    if len(stripped) >= 8 and len(words) == 1:
+        vowel_count = len(re.findall(r"[aeiou]", stripped, re.I))
+        return vowel_count <= 1 and stripped.casefold() not in _VALID_LOW_VOWEL_WORDS
+    return False
+
+
+def route_intent(message: str) -> Intent:
+    """Classify high-confidence intents; leave all other messages evidence-led."""
+    normalized = message.strip()
+    if _INJECTION.search(normalized):
+        return Intent.INJECTION
+    if _SENSITIVE.search(normalized):
+        return Intent.SENSITIVE_REQUEST
+    if _ABUSE.search(normalized):
+        return Intent.ABUSE
+    if _IDENTITY.search(normalized):
+        return Intent.IDENTITY
+    if _GREETINGS.fullmatch(normalized):
+        return Intent.GREETING
+    if _THANKS.search(normalized):
+        return Intent.THANKS
+    if _GOODBYE.search(normalized):
+        return Intent.GOODBYE
+    if _is_gibberish(normalized):
+        return Intent.GIBBERISH_OR_EMPTY
+    return Intent.ABOUT_ME_OR_OTHER
+
+
+def is_about_me_question(message: str) -> bool:
+    """Distinguish personal-note questions from general or unrelated requests."""
+    return bool(
+        re.search(
+            r"\b(?:you|your|yours|yourself|me|my|mine|myself|abdullah|his|he)\b"
+            r"|\b(?:what|which|where|when|who|how)\s+(?:do|did|does|is|are)\s+"
+            r"(?:you|he|abdullah)\b",
+            message,
+            re.IGNORECASE,
+        )
+    )

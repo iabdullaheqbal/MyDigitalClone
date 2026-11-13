@@ -35,7 +35,8 @@ class Settings:
     overlap_words: int
     rrf_k: int
     candidates: int
-    dense_min: float
+    strong_cosine: float
+    weak_cosine: float
     history_turns: int
     data_dir: Path
     artifacts_dir: Path
@@ -49,6 +50,10 @@ class Settings:
         embed_model = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2").strip()
         if not model or not base_url or not embed_model:
             raise ValueError("GROQ_MODEL, GROQ_BASE_URL, and EMBED_MODEL must not be empty")
+        strong_cosine = _read_float("STRONG_COSINE", 0.45, -1.0, 1.0)
+        weak_cosine = _read_float("WEAK_COSINE", 0.20, -1.0, 1.0)
+        if strong_cosine < weak_cosine:
+            raise ValueError("STRONG_COSINE must be greater than or equal to WEAK_COSINE")
 
         return cls(
             groq_api_key=api_key,
@@ -59,7 +64,8 @@ class Settings:
             overlap_words=_read_int("OVERLAP_WORDS", 40, 0),
             rrf_k=_read_int("RRF_K", 60, 1),
             candidates=_read_int("CANDIDATES", 20, 1),
-            dense_min=_read_float("DENSE_MIN", 0.20, -1.0, 1.0),
+            strong_cosine=strong_cosine,
+            weak_cosine=weak_cosine,
             history_turns=_read_int("HISTORY_TURNS", 6, 0),
             data_dir=Path(os.getenv("DATA_DIR", str(PROJECT_ROOT / "data"))).expanduser(),
             artifacts_dir=Path(

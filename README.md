@@ -25,7 +25,9 @@ and [CLAUDE.md](CLAUDE.md) for project contribution guidance.
 - Switch between BM25, dense, and hybrid retrieval; inspect retrieved passages,
   source names, scores, and latency in the interface.
 - Optionally rerank passages with a cross-encoder.
-- Abstain when the notes do not provide relevant evidence.
+- Route small talk and sensitive requests safely, and answer personal questions
+  only when supported by the notes.
+- Offer note-derived topic suggestions when a request is outside the notes.
 - Continue or clear a browser session without sharing its history with other
   sessions.
 
@@ -39,7 +41,8 @@ cp -n .env.example .env
 ```
 
 Set `GROQ_API_KEY` in the ignored local `.env` file. The model and other
-settings have defaults in `.env.example`; do not commit `.env`.
+settings have defaults in `.env.example`; evidence grading is configurable with
+`STRONG_COSINE` and `WEAK_COSINE`. Do not commit `.env`.
 
 The index files in `artifacts/` must match the notes and embedding settings.
 To rebuild the index, run:
@@ -69,8 +72,8 @@ the app's non-Space-provided direct dependencies from `uv.lock` into
 it with a full `uv export`, which would pin packages the Space manages.
 Add `GROQ_API_KEY` as a Space secret (not as a repository file). `GROQ_MODEL`
 is optional; the default is `openai/gpt-oss-20b`. The app can still start
-without a key and will return a grounded passage fallback instead of calling
-Groq.
+without a key and will return a friendly topic-aware fallback instead of
+calling Groq.
 
 ## GitHub Actions deployment
 
@@ -87,15 +90,16 @@ deploy, and no credentials belong in the repository.
 
 ## Evaluation
 
-Draft source-relevance and multi-turn cases are in `eval/`. They are explicitly
-marked as requiring human review. The evaluation commands reject draft cases
-unless `--allow-drafts` is supplied; reports produced from drafts remain
-unvalidated. Review and update the cases before treating their metrics as
-results:
+Draft source-relevance and multi-turn cases are in `eval/`. The retrieval
+evaluation commands reject draft cases unless `--allow-drafts` is supplied;
+reports produced from drafts remain unvalidated. The behavior runner uses its
+own `needs_review` cases and exports a CSV with blank professionalism ratings.
+Review all drafted cases before treating any results as validated:
 
 ```bash
 uv run --env-file .env python scripts/run_eval.py
 uv run --env-file .env python scripts/compare_modes.py
+uv run --env-file .env python scripts/run_eval.py --behavior
 ```
 
 No evaluation metrics are published here because the draft judgments have not

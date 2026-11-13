@@ -79,7 +79,8 @@ def test_client_retries_429_and_respects_request_spacing() -> None:
     payload = session.calls[0]["json"]
     assert isinstance(payload, dict)
     assert payload["model"] == "openai/gpt-oss-20b"
-    assert payload["max_completion_tokens"] == 512
+    assert payload["max_completion_tokens"] == 1024
+    assert payload["reasoning_effort"] == "low"
 
 
 def test_client_does_not_retry_bad_request() -> None:

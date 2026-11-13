@@ -59,3 +59,7 @@ class AnswerResult:
     used_llm: bool
     latency_ms: dict[str, float]
     error: str | None = None
+    intent: str = "about_me_or_other"
+    evidence_level: str = "none"
+    guardrail_flags: tuple[str, ...] = ()
+    not_found_in_notes: bool = False

@@ -93,7 +93,7 @@ class GroqClient:
     def chat(
         self,
         messages: list[dict[str, str]],
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         temperature: float = 0.2,
     ) -> str:
         """Request one chat completion, retrying rate limits and server errors."""
@@ -108,6 +108,7 @@ class GroqClient:
             "messages": messages,
             "max_completion_tokens": max_tokens,
             "temperature": temperature,
+            "reasoning_effort": "low",
         }
 
         for attempt in range(self.max_attempts):

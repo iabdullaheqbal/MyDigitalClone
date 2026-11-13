@@ -5,7 +5,7 @@ import pytest
 from numpy.typing import NDArray
 
 from clone.indexing.builder import build_index
-from clone.indexing.store import fingerprint, load_index
+from clone.indexing.store import fingerprint, load_index, load_topics
 
 
 class FakeEncoder:
@@ -27,7 +27,10 @@ class FakeEncoder:
 def test_build_and_load_round_trip_with_fingerprint(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    (data_dir / "notes.md").write_text("First paragraph.\n\nSecond paragraph.", encoding="utf-8")
+    (data_dir / "notes.md").write_text(
+        "# Bird watching\nFirst paragraph.\n\n## Moon formations\nSecond paragraph.",
+        encoding="utf-8",
+    )
     out_dir = tmp_path / "artifacts"
 
     chunks, embeddings = build_index(
@@ -44,6 +47,7 @@ def test_build_and_load_round_trip_with_fingerprint(tmp_path: Path) -> None:
     assert loaded_chunks == chunks
     np.testing.assert_allclose(loaded_embeddings, embeddings)
     assert loaded_embeddings.dtype == np.float32
+    assert load_topics(out_dir) == ("Bird watching", "Moon formations", "notes")
 
 
 def test_fingerprint_changes_with_data_model_and_chunk_configuration(tmp_path: Path) -> None:
